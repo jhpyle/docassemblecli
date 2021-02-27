@@ -70,7 +70,7 @@ def dainstall():
         except Exception as err:
             print("Unable to save .docassemblecli file.  " + err.__class__.__name__ + ": " + str(err))
     archive = tempfile.NamedTemporaryFile(suffix=".zip")
-    zf = zipfile.ZipFile(archive.name, mode='w')
+    zf = zipfile.ZipFile(archive, mode='w')
     for root, dirs, files in os.walk(args.directory, topdown=True):
         dirs[:] = [d for d in dirs if d not in ['.git', '__pycache__'] and not d.endswith('.egg-info')]
         for file in files:
