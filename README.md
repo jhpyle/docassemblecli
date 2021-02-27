@@ -13,7 +13,7 @@ You need to have Python installed on your computer.
 To install `docassemblecli` from PyPI, run:
 
     pip install docassemblecli
-    
+
 ## Usage
 
 Currently, `docassemblecli` provides one command-line utility called
@@ -31,7 +31,13 @@ From the command line, use `cd` to navigate to the folder that
 contains the `docassemble-foobar` folder.  Then run:
 
     dainstall docassemble-foobar
-    
+
+On Windows, you will need to write `python -m
+docassemblecli.dainstall` in place of `dainstall`, so your command
+will look like this:
+
+    python -m docassemblecli.dainstall docassemble-foobar
+
 The first time you run this command, it will ask you for the URL of
 your **docassemble** server and the [API key] of a user with `admin` or
 `developer` privileges.
