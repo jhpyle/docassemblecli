@@ -22,5 +22,5 @@ setup(
     ],
     packages=find_packages(),
     python_requires=">=2.7",
-    scripts=['bin/dainstall']
+    scripts=['bin/dainstall', 'bin/dawatchinstall']
 )
