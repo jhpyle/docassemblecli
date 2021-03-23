@@ -1,0 +1,55 @@
+#!/bin/bash
+NORESTART=false
+POSITIONAL=()
+PARAMS=()
+thisfile=$(basename $0)
+
+command -v inotifywait &> /dev/null || { echo "The inotifywait command is not available.  You need to install inotify-tools."; exit 1; }
+
+while [[ $# -gt 0 ]]; do
+    key="$1"
+    case $key in
+	--playground|--noconfig|-h|--help|--add|--noconfig)
+	    PARAMS+=("$1")
+	    shift
+	    ;;
+	--apikey|--apiurl|--server|--project)
+	    PARAMS+=("$1")
+	    shift
+	    PARAMS+=("$1")
+	    shift
+	    ;;
+	--norestart)
+	    NORESTART=true
+	    shift
+	    ;;
+	*)
+	    POSITIONAL+=("$1")
+	    shift
+	;;
+    esac
+done
+
+if [ ${#POSITIONAL[@]} -eq 0 ]; then
+    echo -e "usage: ${thisfile} [--apiurl APIURL] [--apikey APIKEY] [--server SERVER]\n                      [--playground] [--project PROJECT]\n                      [--add] [--noconfig]\n                      [directory]"
+    exit 1;
+fi
+
+echo "Watching ${POSITIONAL[0]}"
+
+while true; do
+    changedfiles=$(inotifywait -q -e modify,create,delete --exclude '\#|~$|/\.git/' -r "${POSITIONAL[0]}")
+    echo -e "${changedfiles}"
+    sleep 0.2
+    CURRENTPARAMS=("${PARAMS[@]}")
+    if [ "$NORESTART" = true ]; then
+	CURRENTPARAMS+=("--norestart")
+    else
+	if ! echo "${changedfiles}" | grep -q '\.py'; then
+	    CURRENTPARAMS+=("--norestart")
+	fi
+    fi
+    dainstall "${CURRENTPARAMS[@]}" "${POSITIONAL[@]}"
+    # Depending on your system, you may need to comment out the above line and uncomment the following line.
+    # python -m docassemble.cli.dainstall "${CURRENTPARAMS[@]}" "${POSITIONAL[@]}"
+done

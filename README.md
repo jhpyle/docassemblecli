@@ -92,7 +92,7 @@ to add an additional server configuration to store in your
 `.docassemblecli` config file.  Then you can select the server using
 `--server`:
 
-   dainstall --server dev.example.com docassemble.foobar
+   dainstall --server dev.example.com docassemble-foobar
 
 If you do not specify a `--server`, the first server indicated in your
 `.docassemblecli` file will be used.
@@ -112,13 +112,52 @@ to install a package into your Playground, you can use the
 If you want to install into a particular project in your Playground,
 indicate the project with `--project`.
 
-   dainstall --playground --project testing docassemble.foobar
+   dainstall --playground --project testing docassemble-foobar
+
+Installing into the Playground with `--playground` is faster than
+installing an actual Python package because it does not need to run
+`pip`.
+
+If your development installation uses more than one server, it is safe
+to run `dainstall --playground` with `--norestart` if you are only
+changing YAML files, because Playground YAML files are stored in cloud
+storage and will thus be available immediately to all servers.
 
 ## How it works
 
 The `dainstall` command is just a simple Python script that creates a
 ZIP file and uploads it through the **docassemble** API.  Feel free to
 copy the code and write your own scripts to save yourself time.
+
+## Automatically calling `dainstall`
+
+You can use the `bash` script `dawatchinstall` to call `dainstall`
+automatically every time a file in your package directory is changed.
+
+For example, if you run:
+
+    dawatchinstall --playground --project testing docassemble-foobar
+
+This will monitor the `docassemble-foobar` directory, and if any file
+changes, it will run:
+
+    dainstall --playground --project testing --norestart docassemble-foobar
+
+If a `.py` file is changed, however, it will run
+
+    dainstall --playground --project testing docassemble-foobar
+
+With `dawatchinstall --playground` constantly running, then after you
+save a YAML file on your local machine, it will be available for
+testing on your server within a fraction of a second.
+
+To use this, both `dawatchinstall` and `dainstall` need to be in your
+path; if it is not, you will need to edit the `dawatchinstall` script
+so that it can successfully call the `dainstall` script.
+
+The `dawatchinstall` script depends on the `inotifywait` command.  If
+this command is not available on your system, you may need to install
+the `inotify-tools` package.
 
 [API key]: https://docassemble.org/docs/api.html#manage_api
 [docassemble]: https://docassemble.org
