@@ -6,7 +6,12 @@ local machine, not on a [docassemble] server.
 
 ## Prerequisites
 
-You need to have Python installed on your computer.
+The `dainstall` program requires that you have Python installed on your
+computer. The `dawatchinstall` program requires `bash` and
+`inotify-tools`. These prerequisites are easy to find on Linux
+machines, but are harder to install on Windows and Mac systems. If you
+run Windows, see the last section of this README for instructions on
+getting a command line in Windows Subsystem for Linux.
 
 ## Installation
 
@@ -149,7 +154,9 @@ If a `.py` file is changed, however, it will run
 
 With `dawatchinstall --playground` constantly running, then after you
 save a YAML file on your local machine, it will be available for
-testing on your server within a fraction of a second.
+testing on your server very quickly.
+
+To exit `dawatchinstall`, type Ctrl-c.
 
 To use this, both `dawatchinstall` and `dainstall` need to be in your
 path; if it is not, you will need to edit the `dawatchinstall` script
@@ -158,6 +165,47 @@ so that it can successfully call the `dainstall` script.
 The `dawatchinstall` script depends on the `inotifywait` command.  If
 this command is not available on your system, you may need to install
 the `inotify-tools` package.
+
+## Running on Windows
+
+If you are running Windows, a relatively convenient way to install
+these command-line utilities is to use Windows Subsystem for Linux.
+
+In the Microsoft Store, search for "Ubuntu" and install it. This may
+require restarting your Windows machine. (Other Linux distributions
+will work just as well, so feel free to use a different distribution
+if you know what you are doing.)
+
+Then run the Ubuntu app and answer the prompts to complete the
+installation.
+
+From the Ubuntu command line, do:
+
+    sudo apt -y update
+    sudo apt -y install python3-pip inotify-tools
+    sudo pip install docassemblecli
+    dainstall --add
+
+The last command, `dainstall --add`, will ask for your docassemble
+site URL and your API key. The API key that you supply needs to belong
+to a user with `developer` or `admin` privileges.
+
+Use `cd` to switch to the directory above where your docassemble
+package is located. (Your Windows hard drive is located at `/mnt/c`
+inside of Ubuntu.)
+
+For example, assume you have a folder `docassemble-mypackage` on your
+Desktop, and your username on your machine is `jsmith`. You would do:
+
+    cd /mnt/c/Users/jsmith/Desktop/
+
+From there, you can run commands like:
+
+    dainstall docassemble-mypackage
+
+or
+
+    dawatchinstall --playground --project mypack docassemble-mypackage
 
 [API key]: https://docassemble.org/docs/api.html#manage_api
 [docassemble]: https://docassemble.org

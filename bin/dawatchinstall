@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ ${#POSITIONAL[@]} -eq 0 ]; then
-    echo -e "usage: ${thisfile} [--apiurl APIURL] [--apikey APIKEY] [--server SERVER]\n                      [--playground] [--project PROJECT]\n                      [--add] [--noconfig]\n                      [directory]"
+    echo -e "usage: ${thisfile} [--apiurl APIURL] [--apikey APIKEY] [--server SERVER]\n                      [--playground] [--project PROJECT]\n                      [--add] [--noconfig] [--norestart]\n                      [directory]"
     exit 1;
 fi
 
