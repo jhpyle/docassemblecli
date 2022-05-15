@@ -6,12 +6,12 @@ local machine, not on a [docassemble] server.
 
 ## Prerequisites
 
-The `dainstall` program requires that you have Python installed on your
-computer. The `dawatchinstall` program requires `bash` and
-`inotify-tools`. These prerequisites are easy to find on Linux
-machines, but are harder to install on Windows and Mac systems. If you
-run Windows, see the last section of this README for instructions on
-getting a command line in Windows Subsystem for Linux.
+The `dainstall` program requires that you have Python installed on
+your computer. The `dawatchinstall` program requires `bash` and
+`fswatch`. These prerequisites are easy to find on Linux machines, but
+are harder to install on Windows and Mac systems. If you run Windows,
+see the last section of this README for instructions on getting a
+command line in Windows Subsystem for Linux.
 
 ## Installation
 
@@ -162,9 +162,9 @@ To use this, both `dawatchinstall` and `dainstall` need to be in your
 path; if it is not, you will need to edit the `dawatchinstall` script
 so that it can successfully call the `dainstall` script.
 
-The `dawatchinstall` script depends on the `inotifywait` command.  If
-this command is not available on your system, you may need to install
-the `inotify-tools` package.
+The `dawatchinstall` script depends on the `fswatch` command.  If this
+command is not available on your system, you may need to install the
+`fswatch` package.
 
 ## Running on Windows
 
@@ -182,7 +182,7 @@ installation.
 From the Ubuntu command line, do:
 
     sudo apt -y update
-    sudo apt -y install python3-pip inotify-tools
+    sudo apt -y install python3-pip fswatch
     sudo pip install docassemblecli
     dainstall --add
 

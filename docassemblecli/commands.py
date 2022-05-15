@@ -42,6 +42,34 @@ def name_from_url(url):
     name = re.sub(r'/.*', '', name)
     return name
 
+def wait_for_server(task_id, apikey, apiurl):
+    sys.stdout.write("Waiting for package to install.")
+    sys.stdout.flush()
+    time.sleep(1)
+    sys.stdout.write(".")
+    sys.stdout.flush()
+    time.sleep(1)
+    tries = 0
+    while tries < 100:
+        r = requests.get(apiurl + '/api/package_update_status', params={'task_id': task_id}, headers={'X-API-Key': apikey})
+        if r.status_code != 200:
+            sys.exit("package_update_status returned " + str(r.status_code) + ": " + r.text)
+        info = r.json()
+        if info['status'] == 'completed':
+            break
+        sys.stdout.write(".")
+        sys.stdout.flush()
+        time.sleep(1)
+        tries += 1
+    if info.get('ok', False):
+        sys.stdout.write("\nInstalled.\n")
+        sys.stdout.flush()
+    else:
+        sys.stdout.write("\nUnable to install package.\n")
+        sys.stdout.flush()
+        if 'error_message' in info and isinstance(info['error_message'], str):
+            print(info['error_message'])
+
 def dainstall():
     dotfile = os.path.join(os.path.expanduser('~'), '.docassemblecli')
     parser = argparse.ArgumentParser()
@@ -149,7 +177,10 @@ def dainstall():
             data['project'] = args.project
         sys.stdout.write("Waiting for package to install.")
         r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey})
-        if r.status_code != 204:
+        if r.status_code == 200:
+            task_id = info['task_id']
+            wait_for_server(task_id, apikey, apiurl)
+        elif r.status_code != 204:
             sys.stdout.write("\n")
             sys.exit("playground_install POST returned " + str(r.status_code) + ": " + r.text)
         if args.norestart:
@@ -162,32 +193,7 @@ def dainstall():
             sys.exit("package POST returned " + str(r.status_code) + ": " + r.text)
         info = r.json()
         task_id = info['task_id']
-        sys.stdout.write("Waiting for package to install.")
-        sys.stdout.flush()
-        time.sleep(1)
-        sys.stdout.write(".")
-        sys.stdout.flush()
-        time.sleep(1)
-        tries = 0
-        while tries < 100:
-            r = requests.get(apiurl + '/api/package_update_status', params={'task_id': task_id}, headers={'X-API-Key': apikey})
-            if r.status_code != 200:
-                sys.exit("package_update_status returned " + str(r.status_code) + ": " + r.text)
-            info = r.json()
-            if info['status'] == 'completed':
-                break
-            sys.stdout.write(".")
-            sys.stdout.flush()
-            time.sleep(1)
-            tries += 1
-        if info.get('ok', False):
-            sys.stdout.write("\nInstalled.\n")
-            sys.stdout.flush()
-        else:
-            sys.stdout.write("\nUnable to install package.\n")
-            sys.stdout.flush()
-            if 'error_message' in info and isinstance(info['error_message'], str):
-                print(info['error_message'])
+        wait_for_server(task_id, apikey, apiurl)
         if args.norestart:
             r = requests.post(apiurl + '/api/clear_cache', headers={'X-API-Key': apikey})
             if r.status_code != 204:

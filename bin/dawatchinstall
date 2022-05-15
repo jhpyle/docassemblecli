@@ -4,7 +4,7 @@ POSITIONAL=()
 PARAMS=()
 thisfile=$(basename $0)
 
-command -v inotifywait &> /dev/null || { echo "The inotifywait command is not available.  You need to install inotify-tools."; exit 1; }
+command -v fswatch &> /dev/null || { echo "The fswatch command is not available.  You need to install fswatch."; exit 1; }
 
 while [[ $# -gt 0 ]]; do
     key="$1"
@@ -38,7 +38,7 @@ fi
 echo "Watching ${POSITIONAL[0]}"
 
 while true; do
-    changedfiles=$(inotifywait -q -e modify,create,delete --exclude '\#|~$|/\.git/' -r "${POSITIONAL[0]}")
+    changedfiles=$(fswatch -1 -r -E --exclude '.*\#.*' --exclude '.*~' --exclude '.*/\.git$' --exclude '.*/\.git/.*' --exclude '.*__pycache__.*' --event Updated --event Created ${POSITIONAL[0]} | uniq)
     echo -e "${changedfiles}"
     sleep 0.2
     CURRENTPARAMS=("${PARAMS[@]}")
