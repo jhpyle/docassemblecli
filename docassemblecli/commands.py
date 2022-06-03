@@ -50,7 +50,7 @@ def wait_for_server(task_id, apikey, apiurl):
     sys.stdout.flush()
     time.sleep(1)
     tries = 0
-    while tries < 100:
+    while tries < 300:
         r = requests.get(apiurl + '/api/package_update_status', params={'task_id': task_id}, headers={'X-API-Key': apikey})
         if r.status_code != 200:
             sys.exit("package_update_status returned " + str(r.status_code) + ": " + r.text)
@@ -177,6 +177,7 @@ def dainstall():
             data['project'] = args.project
         sys.stdout.write("Waiting for package to install.")
         r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey})
+        info = r.json()
         if r.status_code == 200:
             task_id = info['task_id']
             wait_for_server(task_id, apikey, apiurl)
