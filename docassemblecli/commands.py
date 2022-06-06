@@ -42,7 +42,7 @@ def name_from_url(url):
     name = re.sub(r'/.*', '', name)
     return name
 
-def wait_for_server(task_id, apikey, apiurl):
+def wait_for_server(playground:bool, task_id, apikey, apiurl):
     sys.stdout.write("Waiting for package to install.")
     sys.stdout.flush()
     time.sleep(1)
@@ -51,17 +51,21 @@ def wait_for_server(task_id, apikey, apiurl):
     time.sleep(1)
     tries = 0
     while tries < 300:
-        r = requests.get(apiurl + '/api/package_update_status', params={'task_id': task_id}, headers={'X-API-Key': apikey})
+        if playground:
+          full_url = apiurl + '/api/restart_status'
+        else:
+          full_url = apiurl + '/api/package_update_status'
+        r = requests.get(full_url, params={'task_id': task_id}, headers={'X-API-Key': apikey})
         if r.status_code != 200:
             sys.exit("package_update_status returned " + str(r.status_code) + ": " + r.text)
         info = r.json()
-        if info['status'] == 'completed':
+        if info['status'] == 'completed' or info['status'] == 'unknown':
             break
         sys.stdout.write(".")
         sys.stdout.flush()
         time.sleep(1)
         tries += 1
-    if info.get('ok', False):
+    if info.get('ok', False) or (playground and info.get('status', None) == 'completed'):
         sys.stdout.write("\nInstalled.\n")
         sys.stdout.flush()
     else:
@@ -69,6 +73,8 @@ def wait_for_server(task_id, apikey, apiurl):
         sys.stdout.flush()
         if 'error_message' in info and isinstance(info['error_message'], str):
             print(info['error_message'])
+        else:
+            print(info)
 
 def dainstall():
     dotfile = os.path.join(os.path.expanduser('~'), '.docassemblecli')
@@ -175,26 +181,27 @@ def dainstall():
     if args.playground:
         if args.project and args.project != 'default':
             data['project'] = args.project
-        sys.stdout.write("Waiting for package to install.")
         r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey})
         info = r.json()
         if r.status_code == 200:
             task_id = info['task_id']
-            wait_for_server(task_id, apikey, apiurl)
+            success = wait_for_server(args.playground, task_id, apikey, apiurl)
         elif r.status_code != 204:
             sys.stdout.write("\n")
             sys.exit("playground_install POST returned " + str(r.status_code) + ": " + r.text)
-        if args.norestart:
-            sys.stdout.write("\nInstalled.\n")
-        else:
-            sys.stdout.write("\nInstalled. The server may now be restarting.\n")
+            success = False
+        if success:
+            if args.norestart:
+                sys.stdout.write("\nInstalled.\n")
+            else:
+                sys.stdout.write("\nInstalled. The server may now be restarting.\n")
     else:
         r = requests.post(apiurl + '/api/package', data=data, files={'zip': archive}, headers={'X-API-Key': apikey})
         if r.status_code != 200:
             sys.exit("package POST returned " + str(r.status_code) + ": " + r.text)
         info = r.json()
         task_id = info['task_id']
-        wait_for_server(task_id, apikey, apiurl)
+        wait_for_server(args.playground, task_id, apikey, apiurl)
         if args.norestart:
             r = requests.post(apiurl + '/api/clear_cache', headers={'X-API-Key': apikey})
             if r.status_code != 204:
