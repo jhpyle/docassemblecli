@@ -168,7 +168,7 @@ def dainstall():
     archive = tempfile.NamedTemporaryFile(suffix=".zip")
     zf = zipfile.ZipFile(archive, mode='w')
     for root, dirs, files in os.walk(args.directory, topdown=True):
-        dirs[:] = [d for d in dirs if d not in ['.git', '__pycache__'] and not d.endswith('.egg-info')]
+        dirs[:] = [d for d in dirs if d not in ['.git', '__pycache__', '.mypy_cache', '.venv'] and not d.endswith('.egg-info')]
         for file in files:
             if file.endswith('~') or file.endswith('.pyc') or file.startswith('#') or file.startswith('.#') or file == '.gitignore':
                 continue
