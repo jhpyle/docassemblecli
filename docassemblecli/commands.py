@@ -1,13 +1,13 @@
+import re
+import zipfile
+import stat
+import tempfile
+import time
 import sys
 import os
 import argparse
 import yaml
-import re
-import zipfile
 import requests
-import stat
-import tempfile
-import time
 
 def select_server(env, apiname):
     for item in env:
@@ -52,9 +52,9 @@ def wait_for_server(playground:bool, task_id, apikey, apiurl):
     tries = 0
     while tries < 300:
         if playground:
-          full_url = apiurl + '/api/restart_status'
+            full_url = apiurl + '/api/restart_status'
         else:
-          full_url = apiurl + '/api/package_update_status'
+            full_url = apiurl + '/api/package_update_status'
         r = requests.get(full_url, params={'task_id': task_id}, headers={'X-API-Key': apikey})
         if r.status_code != 200:
             sys.exit("package_update_status returned " + str(r.status_code) + ": " + r.text)
@@ -65,16 +65,22 @@ def wait_for_server(playground:bool, task_id, apikey, apiurl):
         sys.stdout.flush()
         time.sleep(1)
         tries += 1
-    if info.get('ok', False) or (playground and info.get('status', None) == 'completed'):
-        sys.stdout.write("\nInstalled.\n")
-        sys.stdout.flush()
-    else:
-        sys.stdout.write("\nUnable to install package.\n")
-        sys.stdout.flush()
+    success = False
+    if playground:
+        if info.get('status', None) == 'completed':
+            success = True
+    elif info.get('ok', False):
+        success = True
+    if success:
+        return True
+    sys.stdout.write("\nUnable to install package.\n")
+    if not playground:
         if 'error_message' in info and isinstance(info['error_message'], str):
             print(info['error_message'])
         else:
             print(info)
+    sys.stdout.flush()
+    return False
 
 def dainstall():
     dotfile = os.path.join(os.path.expanduser('~'), '.docassemblecli')
@@ -103,7 +109,7 @@ def dainstall():
     if args.noconfig:
         if args.add:
             sys.exit("Using --add is not compatible with --noconfig.  Exiting.")
-        env = list()
+        env = []
     else:
         if os.path.isfile(dotfile):
             try:
@@ -111,16 +117,16 @@ def dainstall():
                     env = yaml.load(fp, Loader=yaml.FullLoader)
             except Exception as err:
                 print("Unable to load .docassemblecli file.  " + err.__class__.__name__ + ": " + str(err))
-                env = list()
+                env = []
         else:
-            env = list()
+            env = []
         if isinstance(env, dict) and 'apikey' in env and 'apiurl' in env:
             env['name'] = name_from_url(str(env['apiurl']))
             env = [env]
             used_input = True
         if not isinstance(env, list):
             print("Format of .docassemblecli file is not a list; ignoring.")
-            env = list()
+            env = []
     if args.add:
         if args.apiurl:
             apiurl = args.apiurl
@@ -136,10 +142,10 @@ def dainstall():
         sys.exit(0)
     if args.server:
         selected_env = select_server(env, args.server)
-    elif len(env):
+    elif len(env) > 0:
         selected_env = env[0]
     else:
-        selected_env = dict()
+        selected_env = {}
     if args.apiurl:
         apiurl = args.apiurl
     elif 'apiurl' in selected_env and isinstance(selected_env['apiurl'], str):
@@ -175,33 +181,38 @@ def dainstall():
             zf.write(os.path.join(root, file), os.path.relpath(os.path.join(root, file), os.path.join(args.directory, '..')))
     zf.close()
     archive.seek(0)
-    data = dict()
+    data = {}
     if args.norestart:
         data['restart'] = '0'
     if args.playground:
         if args.project and args.project != 'default':
             data['project'] = args.project
         r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey})
-        info = r.json()
         if r.status_code == 200:
+            try:
+                info = r.json()
+            except:
+                sys.exit(r.text)
             task_id = info['task_id']
             success = wait_for_server(args.playground, task_id, apikey, apiurl)
-        elif r.status_code != 204:
+        elif r.status_code == 204:
+            success = True
+        else:
             sys.stdout.write("\n")
             sys.exit("playground_install POST returned " + str(r.status_code) + ": " + r.text)
-            success = False
         if success:
-            if args.norestart:
-                sys.stdout.write("\nInstalled.\n")
-            else:
-                sys.stdout.write("\nInstalled. The server may now be restarting.\n")
+            sys.stdout.write("\nInstalled.\n")
+            sys.stdout.flush()
+        else:
+            sys.exit("\nInstall failed\n")
     else:
         r = requests.post(apiurl + '/api/package', data=data, files={'zip': archive}, headers={'X-API-Key': apikey})
         if r.status_code != 200:
             sys.exit("package POST returned " + str(r.status_code) + ": " + r.text)
         info = r.json()
         task_id = info['task_id']
-        wait_for_server(args.playground, task_id, apikey, apiurl)
+        if wait_for_server(args.playground, task_id, apikey, apiurl):
+            sys.stdout.write("\nInstalled.\n")
         if args.norestart:
             r = requests.post(apiurl + '/api/clear_cache', headers={'X-API-Key': apikey})
             if r.status_code != 204:
