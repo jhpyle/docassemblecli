@@ -187,6 +187,18 @@ def dainstall():
     if args.playground:
         if args.project and args.project != 'default':
             data['project'] = args.project
+        
+        project_list = requests.get(apiurl + '/api/playgroud/project', headers={'X-API-Key': apikey})
+        if project_list.status_code == 200:     
+            if not args.project in project_list:
+                try:
+                    create_project = requests.post(apiurl + '/api/playground/project', data={'project': args.project}, headers={'X-API-Key': apikey})
+                except:
+                    sys.exit("create project POST returned " + create_project.text)
+        else:
+            sys.stdout.write("\n")
+            sys.exit("playground list of projects GET returned " + str(project_list.statuscode) + ": " + project_list.text)
+            
         r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey})
         if r.status_code == 200:
             try:
