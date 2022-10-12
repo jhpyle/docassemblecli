@@ -5,3 +5,4 @@ build
 *.egg-info
 dist
 newversion.sh
+.history
