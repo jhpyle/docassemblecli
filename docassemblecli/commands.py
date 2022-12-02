@@ -171,8 +171,12 @@ def dainstall():
         add_or_update_env(env, apiurl, apikey)
         if save_dotfile(dotfile, env):
             print("Saved base URL and API key to .docassemblecli as server " + name_from_url(apiurl))
+    data = {}
+    if args.norestart:
+        data['restart'] = '0'
     archive = tempfile.NamedTemporaryFile(suffix=".zip")
     zf = zipfile.ZipFile(archive, mode='w')
+    args.directory = re.sub(r'/$', '', args.directory)
     for root, dirs, files in os.walk(args.directory, topdown=True):
         dirs[:] = [d for d in dirs if d not in ['.git', '__pycache__', '.mypy_cache', '.venv', '.history'] and not d.endswith('.egg-info')]
         for file in files:
@@ -181,13 +185,9 @@ def dainstall():
             zf.write(os.path.join(root, file), os.path.relpath(os.path.join(root, file), os.path.join(args.directory, '..')))
     zf.close()
     archive.seek(0)
-    data = {}
-    if args.norestart:
-        data['restart'] = '0'
     if args.playground:
         if args.project and args.project != 'default':
             data['project'] = args.project
-        
         project_endpoint = apiurl + '/api/playground/project'
         project_list = requests.get(project_endpoint, headers={'X-API-Key': apikey})
         if project_list.status_code == 200:     
@@ -201,6 +201,18 @@ def dainstall():
             sys.exit("playground list of projects GET returned " + str(project_list.statuscode) + ": " + project_list.text)
             
         r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey})
+        if r.status_code == 400:
+            try:
+                error_message = r.json()
+            except:
+                error_message = ''
+            if 'project' not in data or error_message != 'Invalid project.':
+                sys.exit('playground_install POST returned ' + str(r.status_code) + ": " + r.text)
+            r = requests.post(apiurl + '/api/playground/project', data={'project': data['project']}, headers={'X-API-Key': apikey})
+            if r.status_code != 204:
+                sys.exit("needed to create playground project but POST to api/playground/project returned " + str(r.statuscode) + ": " + r.text)
+            archive.seek(0)
+            r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey})
         if r.status_code == 200:
             try:
                 info = r.json()
