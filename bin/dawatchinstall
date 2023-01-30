@@ -38,7 +38,7 @@ fi
 echo "Watching ${POSITIONAL[0]}"
 
 while true; do
-    changedfiles=$(fswatch -1 -r -E --exclude '.*\#.*' --exclude '.*~' --exclude '.*/\.git$' --exclude '.*/\.git/.*' --exclude '.*__pycache__.*' --event Updated --event Created ${POSITIONAL[0]} | uniq)
+    changedfiles=$(fswatch -1 -r -E --exclude '.*#.*' --exclude '.*~' --exclude '.*/\.git$' --exclude '.*/flycheck_.*' --exclude '.*/\.git/.*' --exclude '.*__pycache__.*' --event Updated --event Created ${POSITIONAL[0]} | uniq)
     echo -e "${changedfiles}"
     sleep 0.2
     CURRENTPARAMS=("${PARAMS[@]}")
