@@ -175,7 +175,7 @@ def dainstall():
     if args.norestart:
         data['restart'] = '0'
     archive = tempfile.NamedTemporaryFile(suffix=".zip")
-    zf = zipfile.ZipFile(archive, mode='w')
+    zf = zipfile.ZipFile(archive, compression=zipfile.ZIP_DEFLATED, mode='w')
     args.directory = re.sub(r'/$', '', args.directory)
     for root, dirs, files in os.walk(args.directory, topdown=True):
         dirs[:] = [d for d in dirs if d not in ['.git', '__pycache__', '.mypy_cache', '.venv', '.history'] and not d.endswith('.egg-info')]
