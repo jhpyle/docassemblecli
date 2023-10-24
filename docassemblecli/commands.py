@@ -1,4 +1,5 @@
 import re
+import datetime
 import zipfile
 import stat
 import tempfile
@@ -9,11 +10,13 @@ import argparse
 import yaml
 import requests
 
+
 def select_server(env, apiname):
     for item in env:
         if item.get('name', None) == apiname:
             return item
     sys.exit("Server " + apiname + " is not present in the .docassemblecli file")
+
 
 def save_dotfile(dotfile, env):
     try:
@@ -24,6 +27,7 @@ def save_dotfile(dotfile, env):
         print("Unable to save .docassemblecli file.  " + err.__class__.__name__ + ": " + str(err))
         return False
     return True
+
 
 def add_or_update_env(env, apiurl, apikey):
     apiname = name_from_url(apiurl)
@@ -37,10 +41,12 @@ def add_or_update_env(env, apiurl, apikey):
     if not found:
         env.append({'apiurl': apiurl, 'apikey': apikey, 'name': apiname})
 
+
 def name_from_url(url):
     name = re.sub(r'^https?\:\/\/', '', url)
     name = re.sub(r'/.*', '', name)
     return name
+
 
 def wait_for_server(playground:bool, task_id, apikey, apiurl):
     sys.stdout.write("Waiting for package to install.")
@@ -81,6 +87,7 @@ def wait_for_server(playground:bool, task_id, apikey, apiurl):
             print(info)
     sys.stdout.flush()
     return False
+
 
 def dainstall():
     dotfile = os.path.join(os.path.expanduser('~'), '.docassemblecli')
@@ -173,18 +180,30 @@ def dainstall():
             print("Saved base URL and API key to .docassemblecli as server " + name_from_url(apiurl))
     data = {}
     if args.norestart:
-        data['restart'] = '0'
+        should_restart = False
+    else:
+        should_restart = True
     archive = tempfile.NamedTemporaryFile(suffix=".zip")
     zf = zipfile.ZipFile(archive, compression=zipfile.ZIP_DEFLATED, mode='w')
     args.directory = re.sub(r'/$', '', args.directory)
+    root_directory = None
+    has_python_files = False
     for root, dirs, files in os.walk(args.directory, topdown=True):
         dirs[:] = [d for d in dirs if d not in ['.git', '__pycache__', '.mypy_cache', '.venv', '.history'] and not d.endswith('.egg-info')]
-        for file in files:
-            if file.endswith('~') or file.endswith('.pyc') or file.startswith('#') or file.startswith('.#') or file == '.gitignore':
+        if root_directory is None and ('setup.py' in files or 'setup.cfg' in files):
+            root_directory = root
+        for the_file in files:
+            if the_file.endswith('~') or the_file.endswith('.pyc') or the_file.startswith('#') or the_file.startswith('.#') or the_file == '.gitignore':
                 continue
-            zf.write(os.path.join(root, file), os.path.relpath(os.path.join(root, file), os.path.join(args.directory, '..')))
+            if not has_python_files and the_file.endswith('.py') and not (the_file == 'setup.py' and root == root_directory) and the_file != '__init__.py':
+                has_python_files = True
+            zf.write(os.path.join(root, the_file), os.path.relpath(os.path.join(root, the_file), os.path.join(args.directory, '..')))
     zf.close()
     archive.seek(0)
+    if not has_python_files:
+        should_restart = False
+    if not should_restart:
+        data['restart'] = '0'
     if args.playground:
         if args.project and args.project != 'default':
             data['project'] = args.project
@@ -237,8 +256,197 @@ def dainstall():
         task_id = info['task_id']
         if wait_for_server(args.playground, task_id, apikey, apiurl):
             sys.stdout.write("\nInstalled.\n")
-        if args.norestart:
+        if not should_restart:
             r = requests.post(apiurl + '/api/clear_cache', headers={'X-API-Key': apikey})
             if r.status_code != 204:
                 sys.exit("clear_cache returned " + str(r.status_code) + ": " + r.text)
+    sys.exit(0)
+
+
+def dacreate():
+    dotfile = os.path.join(os.path.expanduser('~'), '.docassemblecli')
+    parser = argparse.ArgumentParser()
+    parser.add_argument("package", help="name of the package you want to create", nargs='?')
+    parser.add_argument("--developer-name", help="name of the developer of the package")
+    parser.add_argument("--developer-email", help="email of the developer of the package")
+    parser.add_argument("--description", help="description of package")
+    parser.add_argument("--url", help="URL of package")
+    parser.add_argument("--license", help="license of package")
+    parser.add_argument("--version", help="version number of package")
+    parser.add_argument("--output", help="output directory in which to create the package")
+    args = parser.parse_args()
+    pkgname = args.package
+    if not pkgname:
+       pkgname = input('Name of the package you want to create (e.g., childsupport): ')
+    pkgname = re.sub(r'\s', '', pkgname)
+    if not pkgname:
+        sys.exit("The package name you entered is invalid.")
+    pkgname = re.sub(r'^docassemble[\-\.]', '', pkgname, flags=re.IGNORECASE)
+    if args.output:
+        packagedir = args.output
+    else:
+        packagedir = 'docassemble-' + pkgname
+    if os.path.exists(packagedir):
+        if not os.path.isdir(packagedir):
+            sys.exit("Cannot create the directory " + packagedir + " because the path already exists.")
+        dir_listing = list(os.listdir(packagedir))
+        if 'setup.py' in dir_listing or 'setup.cfg' in dir_listing:
+            sys.exit("The directory " + packagedir + " already has a package in it.")
+    else:
+        os.makedirs(packagedir, exist_ok=True)
+    developer_name = args.developer_name
+    if not developer_name:
+        developer_name = input('Name of developer: ').strip()
+        if not developer_name:
+            developer_name = "Your Name Here"
+    developer_email = args.developer_email
+    if not developer_email:
+        developer_email = input('Email address of developer [developer@example.com]: ').strip()
+        if not developer_email:
+            developer_email = "developer@example.com"
+    description = args.description
+    if not description:
+        description = input('Description of package [A docassemble extension]: ').strip()
+        if not description:
+            description = "A docassemble extension."
+    package_url = args.url
+    if not package_url:
+        package_url = input('URL of package [https://docassemble.org]: ').strip()
+        if not package_url:
+            package_url = "https://docassemble.org"
+    license = args.license
+    if not license:
+        license = input('License of package [MIT]: ').strip()
+        if not license:
+            license = "MIT"
+    version = args.version
+    if not version:
+        version = input('Version of package [0.0.1]: ').strip()
+        if not version:
+            version = "0.0.1"
+    initpy = """\
+__import__('pkg_resources').declare_namespace(__name__)
+
+"""
+    if 'MIT' in license:
+        licensetext = 'The MIT License (MIT)\n\nCopyright (c) ' + str(datetime.datetime.now().year) + ' ' + developer_name + """
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+    else:
+        licensetext = license + "\n"
+    readme = '# docassemble.' + pkgname + "\n\n" + description + "\n\n## Author\n\n" + developer_name + ", " + developer_email + "\n"
+    manifestin = """\
+include README.md
+"""
+    setupcfg = """\
+[metadata]
+description_file = README.md
+"""
+    setuppy = """\
+import os
+import sys
+from setuptools import setup, find_packages
+from fnmatch import fnmatchcase
+from distutils.util import convert_path
+
+standard_exclude = ('*.pyc', '*~', '.*', '*.bak', '*.swp*')
+standard_exclude_directories = ('.*', 'CVS', '_darcs', './build', './dist', 'EGG-INFO', '*.egg-info')
+
+def find_package_data(where='.', package='', exclude=standard_exclude, exclude_directories=standard_exclude_directories):
+    out = {}
+    stack = [(convert_path(where), '', package)]
+    while stack:
+        where, prefix, package = stack.pop(0)
+        for name in os.listdir(where):
+            fn = os.path.join(where, name)
+            if os.path.isdir(fn):
+                bad_name = False
+                for pattern in exclude_directories:
+                    if (fnmatchcase(name, pattern)
+                        or fn.lower() == pattern.lower()):
+                        bad_name = True
+                        break
+                if bad_name:
+                    continue
+                if os.path.isfile(os.path.join(fn, '__init__.py')):
+                    if not package:
+                        new_package = name
+                    else:
+                        new_package = package + '.' + name
+                        stack.append((fn, '', new_package))
+                else:
+                    stack.append((fn, prefix + name + '/', package))
+            else:
+                bad_name = False
+                for pattern in exclude:
+                    if (fnmatchcase(name, pattern)
+                        or fn.lower() == pattern.lower()):
+                        bad_name = True
+                        break
+                if bad_name:
+                    continue
+                out.setdefault(package, []).append(prefix+name)
+    return out
+
+"""
+    setuppy += "setup(name=" + repr('docassemble.' + pkgname) + """,
+      version=""" + repr(version) + """,
+      description=(""" + repr(description) + """),
+      long_description=""" + repr(readme) + """,
+      long_description_content_type='text/markdown',
+      author=""" + repr(developer_name) + """,
+      author_email=""" + repr(developer_email) + """,
+      license=""" + repr(license) + """,
+      url=""" + repr(package_url) + """,
+      packages=find_packages(),
+      namespace_packages=['docassemble'],
+      install_requires=[],
+      zip_safe=False,
+      package_data=find_package_data(where='docassemble/""" + pkgname + """/', package='docassemble.""" + pkgname + """'),
+     )
+"""
+    maindir = os.path.join(packagedir, 'docassemble', pkgname)
+    questionsdir = os.path.join(packagedir, 'docassemble', pkgname, 'data', 'questions')
+    templatesdir = os.path.join(packagedir, 'docassemble', pkgname, 'data', 'templates')
+    staticdir = os.path.join(packagedir, 'docassemble', pkgname, 'data', 'static')
+    sourcesdir = os.path.join(packagedir, 'docassemble', pkgname, 'data', 'sources')
+    if not os.path.isdir(questionsdir):
+        os.makedirs(questionsdir, exist_ok=True)
+    if not os.path.isdir(templatesdir):
+        os.makedirs(templatesdir, exist_ok=True)
+    if not os.path.isdir(staticdir):
+        os.makedirs(staticdir, exist_ok=True)
+    if not os.path.isdir(sourcesdir):
+        os.makedirs(sourcesdir, exist_ok=True)
+    with open(os.path.join(packagedir, 'README.md'), 'w', encoding='utf-8') as the_file:
+        the_file.write(readme)
+    with open(os.path.join(packagedir, 'LICENSE'), 'w', encoding='utf-8') as the_file:
+        the_file.write(licensetext)
+    with open(os.path.join(packagedir, 'setup.py'), 'w', encoding='utf-8') as the_file:
+        the_file.write(setuppy)
+    with open(os.path.join(packagedir, 'setup.cfg'), 'w', encoding='utf-8') as the_file:
+        the_file.write(setupcfg)
+    with open(os.path.join(packagedir, 'MANIFEST.in'), 'w', encoding='utf-8') as the_file:
+        the_file.write(manifestin)
+    with open(os.path.join(packagedir, 'docassemble', '__init__.py'), 'w', encoding='utf-8') as the_file:
+        the_file.write(initpy)
+    with open(os.path.join(packagedir, 'docassemble', pkgname, '__init__.py'), 'w', encoding='utf-8') as the_file:
+        the_file.write("__version__ = " + repr(version) + "\n")
     sys.exit(0)
