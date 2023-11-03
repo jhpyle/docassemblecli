@@ -198,7 +198,7 @@ def dainstall():
                     sys.exit("create project POST returned " + project_list.text)
         else:
             sys.stdout.write("\n")
-            sys.exit("playground list of projects GET returned " + str(project_list.statuscode) + ": " + project_list.text)
+            sys.exit("playground list of projects GET returned " + str(project_list.status_code) + ": " + project_list.text)
         r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey})
         if r.status_code == 400:
             try:
