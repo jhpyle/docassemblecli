@@ -8,6 +8,7 @@ import os
 import argparse
 import yaml
 import requests
+import subprocess
 
 def select_server(env, apiname):
     for item in env:
@@ -177,10 +178,20 @@ def dainstall():
     archive = tempfile.NamedTemporaryFile(suffix=".zip")
     zf = zipfile.ZipFile(archive, compression=zipfile.ZIP_DEFLATED, mode='w')
     args.directory = re.sub(r'/$', '', args.directory)
+    raw_ignore = ['.git', '__pycache__', '.mypy_cache', '.venv', '.history']
+    try:
+        ignore_process = subprocess.run(['git', 'ls-files', '-i', '--directory', '-o', '--exclude-standard'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        ignore_process.check_returncode()
+        raw_ignore += ignore_process.stdout.splitlines()
+    except Exception as err:
+        code = f'\nreturn code: {err.returncode}' if hasattr(err, 'returncode') else ''
+        msg = err.stderr if hasattr(err, 'stderr') else err
+        print('Warning: git error', code, '\nError: ', msg)
+    to_ignore = [path.rstrip('/') for path in raw_ignore]
     for root, dirs, files in os.walk(args.directory, topdown=True):
-        dirs[:] = [d for d in dirs if d not in ['.git', '__pycache__', '.mypy_cache', '.venv', '.history'] and not d.endswith('.egg-info')]
+        dirs[:] = [d for d in dirs if os.path.join(root, d)[2:] not in to_ignore and not d.endswith('.egg-info')]
         for file in files:
-            if file.endswith('~') or file.endswith('.pyc') or file.startswith('#') or file.startswith('.#') or file == '.gitignore':
+            if os.path.join(root, file)[2:] in to_ignore or file.endswith('~') or file.endswith('.pyc') or file.startswith('#') or file.startswith('.#') or file == '.gitignore':
                 continue
             zf.write(os.path.join(root, file), os.path.relpath(os.path.join(root, file), os.path.join(args.directory, '..')))
     zf.close()
