@@ -209,7 +209,7 @@ def dainstall():
                 sys.exit('playground_install POST returned ' + str(r.status_code) + ": " + r.text)
             r = requests.post(apiurl + '/api/playground/project', data={'project': data['project']}, headers={'X-API-Key': apikey})
             if r.status_code != 204:
-                sys.exit("needed to create playground project but POST to api/playground/project returned " + str(r.statuscode) + ": " + r.text)
+                sys.exit("needed to create playground project but POST to api/playground/project returned " + str(r.status_code) + ": " + r.text)
             archive.seek(0)
             r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey})
         if r.status_code == 200:
