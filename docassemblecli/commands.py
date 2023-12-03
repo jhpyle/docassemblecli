@@ -9,6 +9,8 @@ import os
 import argparse
 import yaml
 import requests
+import subprocess
+
 
 
 def select_server(env, apiname):
@@ -186,14 +188,22 @@ def dainstall():
     archive = tempfile.NamedTemporaryFile(suffix=".zip")
     zf = zipfile.ZipFile(archive, compression=zipfile.ZIP_DEFLATED, mode='w')
     args.directory = re.sub(r'/$', '', args.directory)
+    try:
+        ignore_process = subprocess.run(['git', 'ls-files', '-i', '--directory', '-o', '--exclude-standard'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, cwd=args.directory)
+        ignore_process.check_returncode()
+        raw_ignore = ignore_process.stdout.splitlines()
+    except:
+        raw_ignore = []
+    to_ignore = [path.rstrip('/') for path in raw_ignore]
     root_directory = None
     has_python_files = False
     for root, dirs, files in os.walk(args.directory, topdown=True):
-        dirs[:] = [d for d in dirs if d not in ['.git', '__pycache__', '.mypy_cache', '.venv', '.history'] and not d.endswith('.egg-info')]
+        adjusted_root = os.sep.join(root.split(os.sep)[1:])
+        dirs[:] = [d for d in dirs if d not in ['.git', '__pycache__', '.mypy_cache', '.venv', '.history', 'build'] and not d.endswith('.egg-info') and os.path.join(adjusted_root, d) not in to_ignore]
         if root_directory is None and ('setup.py' in files or 'setup.cfg' in files):
             root_directory = root
         for the_file in files:
-            if the_file.endswith('~') or the_file.endswith('.pyc') or the_file.startswith('#') or the_file.startswith('.#') or the_file == '.gitignore':
+            if the_file.endswith('~') or the_file.endswith('.pyc') or the_file.startswith('#') or the_file.startswith('.#') or (the_file == '.gitignore' and root_directory == root) or os.path.join(adjusted_root, the_file) in to_ignore:
                 continue
             if not has_python_files and the_file.endswith('.py') and not (the_file == 'setup.py' and root == root_directory) and the_file != '__init__.py':
                 has_python_files = True
