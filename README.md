@@ -1,17 +1,17 @@
 # docassemblecli
 
 `docassemblecli` provides command-line utilities for interacting with
-[docassemble] servers.  This package is meant to be installed on your
+[docassemble] servers. This package is meant to be installed on your
 local machine, not on a [docassemble] server.
 
 ## Prerequisites
 
-The `dainstall` program requires that you have Python installed on
-your computer. The `dawatchinstall` program requires `bash` and
-`fswatch`. These prerequisites are easy to find on Linux machines, but
-are harder to install on Windows and Mac systems. If you run Windows,
-see the last section of this README for instructions on getting a
-command line in Windows Subsystem for Linux.
+The `dainstall` and `dacreate` programs require that you have Python
+installed on your computer. The `dawatchinstall` program requires
+`bash` and `fswatch`. These prerequisites are easy to find on Linux
+machines, but are harder to install on Windows and Mac systems. If you
+run Windows, see the last section of this README for instructions on
+getting a command line in Windows Subsystem for Linux.
 
 ## Installation
 
@@ -21,19 +21,65 @@ To install `docassemblecli` from PyPI, run:
 
 ## Usage
 
-Currently, `docassemblecli` provides one command-line utility called
-`dainstall`, which installs a Python package on a remote server using
-files on your local computer.
+### dacreate
+
+`docassemblecli` provides a command-line utility called `dacreate`,
+which creates an empty **docassemble** add-on package.
+
+To create a package called `docassemble-foobar`, run:
+
+    dacreate foobar
+
+You will be asked some questions about the package and the
+developer. This information is necessary because it goes into the
+`setup.py`, `README.md`, and `LICENSE` files of the package. If you do
+not yet know what answers to give, just press enter, and you can edit
+these files later.
+
+When the command exits, you will find a directory in the current
+directory called `docassemble-foobar` containing a shell of a
+**docassemble** add-on package.
+
+You can run `dacreate --help` to get more information about how
+`dacreate` works:
+
+    usage: dacreate [-h] [--developer-name DEVELOPER_NAME]
+                    [--developer-email DEVELOPER_EMAIL]
+                    [--description DESCRIPTION] [--url URL] [--license LICENSE]
+                    [--version VERSION] [--output OUTPUT]
+                    [package]
+
+    positional arguments:
+      package               name of the package you want to create
+
+    options:
+      -h, --help            show this help message and exit
+      --developer-name DEVELOPER_NAME
+                            name of the developer of the package
+      --developer-email DEVELOPER_EMAIL
+                            email of the developer of the package
+      --description DESCRIPTION
+                            description of package
+      --url URL             URL of package
+      --license LICENSE     license of package
+      --version VERSION     version number of package
+      --output OUTPUT       output directory in which to create the package
+
+### dainstall
+
+`docassemblecli` provides a command-line utility called `dainstall`,
+which installs a Python package on a remote server using files on your
+local computer.
 
 For example, suppose that you wrote a docassemble extension package
-called `docassemble.foobar` using the **docassemble** Playground.  In
+called `docassemble.foobar` using the **docassemble** Playground. In
 the Playground, you can download the package as a ZIP file called
-`docassemble-foobar.zip`.  You can then unpack this ZIP file and see a
-folder called `docassemble-foobar`.  Inside of this folder there is a
-folder called `docassemble` and a `setup.py` file.
+`docassemble-foobar.zip`. You can then unpack this ZIP file and you
+will see a folder called `docassemble-foobar`. Inside of this folder
+there is a folder called `docassemble` and a `setup.py` file.
 
 From the command line, use `cd` to navigate to the folder that
-contains the `docassemble-foobar` folder.  Then run:
+contains the `docassemble-foobar` folder. Then run:
 
     dainstall docassemble-foobar
 
@@ -62,7 +108,7 @@ API key.
 You can run `dainstall --help` to get more information about how
 `dainstall` works:
 
-    $ dainstall [-h] [--apiurl APIURL] [--apikey APIKEY] [--norestart]
+    usage: dainstall [-h] [--apiurl APIURL] [--apikey APIKEY] [--norestart]
                      [--server SERVER] [--playground] [--project PROJECT] [--add]
                      [--noconfig]
                      [directory]
@@ -94,7 +140,7 @@ If you have more than one server, you can run:
     dainstall --add
 
 to add an additional server configuration to store in your
-`.docassemblecli` config file.  Then you can select the server using
+`.docassemblecli` config file. Then you can select the server using
 `--server`:
 
    dainstall --server dev.example.com docassemble-foobar
@@ -104,11 +150,11 @@ If you do not specify a `--server`, the first server indicated in your
 
 The `--norestart` option can be used when your **docassemble**
 installation only uses one server (which is typical) and you are not
-modifying .py files.  In this case, it is not necessary for the Python
-web application to restart after the package has been installed.  This
+modifying .py files. In this case, it is not necessary for the Python
+web application to restart after the package has been installed. This
 will cause `dainstall` to return a few seconds faster than otherwise.
 
-By default, `dainstall` installs a package on the server.  If you want
+By default, `dainstall` installs a package on the server. If you want
 to install a package into your Playground, you can use the
 `--playground` option.
 
@@ -131,7 +177,7 @@ storage and will thus be available immediately to all servers.
 ## How it works
 
 The `dainstall` command is just a simple Python script that creates a
-ZIP file and uploads it through the **docassemble** API.  Feel free to
+ZIP file and uploads it through the **docassemble** API. Feel free to
 copy the code and write your own scripts to save yourself time.
 
 ## Automatically calling `dainstall`
@@ -162,7 +208,7 @@ To use this, both `dawatchinstall` and `dainstall` need to be in your
 path; if it is not, you will need to edit the `dawatchinstall` script
 so that it can successfully call the `dainstall` script.
 
-The `dawatchinstall` script depends on the `fswatch` command.  If this
+The `dawatchinstall` script depends on the `fswatch` command. If this
 command is not available on your system, you may need to install the
 `fswatch` package.
 
