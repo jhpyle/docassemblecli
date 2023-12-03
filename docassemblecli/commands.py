@@ -12,7 +12,6 @@ import requests
 import subprocess
 
 
-
 def select_server(env, apiname):
     for item in env:
         if item.get('name', None) == apiname:
