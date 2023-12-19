@@ -179,11 +179,6 @@ def dainstall():
         add_or_update_env(env, apiurl, apikey)
         if save_dotfile(dotfile, env):
             print("Saved base URL and API key to .docassemblecli as server " + name_from_url(apiurl))
-    data = {}
-    if args.norestart:
-        should_restart = False
-    else:
-        should_restart = True
     archive = tempfile.NamedTemporaryFile(suffix=".zip")
     zf = zipfile.ZipFile(archive, compression=zipfile.ZIP_DEFLATED, mode='w')
     args.directory = re.sub(r'/$', '', args.directory)
@@ -209,8 +204,17 @@ def dainstall():
             zf.write(os.path.join(root, the_file), os.path.relpath(os.path.join(root, the_file), os.path.join(args.directory, '..')))
     zf.close()
     archive.seek(0)
-    if not has_python_files:
+    data = {}
+    try:
+        with open('setup.py', 'r') as file:
+            match = re.search(r'install_requires=\[(.*?)\]', file.read())
+            has_dependencies = len(match.group(1).split(',')) > 0 if match else False
+    except:
+        has_dependencies = False
+    if args.norestart or (not has_python_files and not has_dependencies):
         should_restart = False
+    else:
+        should_restart = True
     if not should_restart:
         data['restart'] = '0'
     if args.playground:
