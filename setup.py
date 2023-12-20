@@ -9,7 +9,7 @@ setup(
     author="Jonathan Pyle",
     author_email="jhpyle@gmail.com",
     description="CLI utilities for using docassemble",
-    install_requires=['pyyaml', 'requests'],
+    install_requires=['pyyaml', 'requests', 'packaging'],
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/jhpyle/docassemblecli",
