@@ -10,6 +10,7 @@ import argparse
 import yaml
 import requests
 import subprocess
+from packaging import version
 
 
 def select_server(env, apiname):
@@ -97,12 +98,15 @@ def dainstall():
     parser.add_argument("--apiurl", help="base url of your docassemble server, e.g. https://da.example.com")
     parser.add_argument("--apikey", help="docassemble API key")
     parser.add_argument("--norestart", help="do not restart the docassemble server after installing package (only applicable in single-server environments)", action="store_true")
+    parser.add_argument("--force-restart", help="unconditionally restart the docassemble server after installing package", action="store_true")
     parser.add_argument("--server", help="use a particular server from the .docassemblecli config file")
     parser.add_argument("--playground", help="install into your Playground instead of into the server", action="store_true")
     parser.add_argument("--project", help="install into a specific project in the Playground")
     parser.add_argument("--add", help="add another server to the .docassemblecli config file", action="store_true")
     parser.add_argument("--noconfig", help="do not use the .docassemblecli config file", action="store_true")
     args = parser.parse_args()
+    if args.norestart and args.force_restart:
+        sys.exit("The --norestart option can cannot be used with --force-restart.")
     if args.project and not args.playground:
         sys.exit("The --project option can only be used with --playground.")
     if not args.add:
@@ -191,11 +195,30 @@ def dainstall():
     to_ignore = [path.rstrip('/') for path in raw_ignore]
     root_directory = None
     has_python_files = False
+    this_package_name = None
+    dependencies = {}
     for root, dirs, files in os.walk(args.directory, topdown=True):
         adjusted_root = os.sep.join(root.split(os.sep)[1:])
         dirs[:] = [d for d in dirs if d not in ['.git', '__pycache__', '.mypy_cache', '.venv', '.history', 'build'] and not d.endswith('.egg-info') and os.path.join(adjusted_root, d) not in to_ignore]
         if root_directory is None and ('setup.py' in files or 'setup.cfg' in files):
             root_directory = root
+            if 'setup.py' in files:
+                with open(os.path.join(root, 'setup.py'), 'r', encoding='utf-8') as fp:
+                    setup_text = fp.read()
+                    m = re.search(r'setup\(.*\bname=(["\'])(.*?)(["\'])', setup_text)
+                    if m and m.group(1) == m.group(3):
+                        this_package_name = m.group(2).strip()
+                    m = re.search(r'setup\(.*install_requires=\[(.*?)\]', setup_text, flags=re.DOTALL)
+                    if m:
+                        for package_text in m.group(1).split(','):
+                            package_name = package_text.strip()
+                            if len(package_name) >= 3 and package_name[0] == package_name[-1] and package_name[0] in ("'", '"'):
+                                package_name = package_name[1:-1]
+                                mm = re.search(r'(.*)(<=|>=|==|<|>)(.*)', package_name)
+                                if mm:
+                                    dependencies[mm.group(1).strip()] = {'installed': False, 'operator': mm.group(2), 'version': mm.group(3).strip()}
+                                else:
+                                    dependencies[package_name] = {'installed': False, 'operator': None, 'version': None}
         for the_file in files:
             if the_file.endswith('~') or the_file.endswith('.pyc') or the_file.startswith('#') or the_file.startswith('.#') or (the_file == '.gitignore' and root_directory == root) or os.path.join(adjusted_root, the_file) in to_ignore:
                 continue
@@ -204,17 +227,40 @@ def dainstall():
             zf.write(os.path.join(root, the_file), os.path.relpath(os.path.join(root, the_file), os.path.join(args.directory, '..')))
     zf.close()
     archive.seek(0)
-    data = {}
-    try:
-        with open('setup.py', 'r') as file:
-            match = re.search(r'install_requires=\[(.*?)\]', file.read())
-            has_dependencies = len(match.group(1).split(',')) > 0 if match else False
-    except:
-        has_dependencies = False
-    if args.norestart or (not has_python_files and not has_dependencies):
+    if args.norestart:
         should_restart = False
+    elif args.force_restart or has_python_files:
+        should_restart = True
+    elif len(dependencies) > 0 or this_package_name:
+        r = requests.get(apiurl + '/api/package', headers={'X-API-Key': apikey})
+        if r.status_code != 200:
+            sys.exit("/api/package returned " + str(r.status_code) + ": " + r.text)
+        installed_packages = r.json()
+        already_installed = False
+        for package_info in installed_packages:
+            package_info['alt_name'] = re.sub('^docassemble\.', 'docassemble-', package_info['name'])
+            for dependency_name, dependency_info in dependencies.items():
+                if dependency_name in (package_info['name'], package_info['alt_name']):
+                    condition = True
+                    if dependency_info['operator']:
+                        if dependency_info['operator'] == '==':
+                            condition = version.parse(package_info['version']) == version.parse(dependency_info['version'])
+                        elif dependency_info['operator'] == '<=':
+                            condition = version.parse(package_info['version']) <= version.parse(dependency_info['version'])
+                        elif dependency_info['operator'] == '>=':
+                            condition = version.parse(package_info['version']) >= version.parse(dependency_info['version'])
+                        elif dependency_info['operator'] == '<':
+                            condition = version.parse(package_info['version']) < version.parse(dependency_info['version'])
+                        elif dependency_info['operator'] == '>':
+                            condition = version.parse(package_info['version']) > version.parse(dependency_info['version'])
+                    if condition:
+                        dependency_info['installed'] = True
+            if this_package_name and this_package_name in (package_info['name'], package_info['alt_name']):
+                already_installed = True
+        should_restart = bool((not already_installed and len(dependencies) > 0) or not all(item['installed'] for item in dependencies.values()))
     else:
         should_restart = True
+    data = {}
     if not should_restart:
         data['restart'] = '0'
     if args.playground:

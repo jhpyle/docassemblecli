@@ -109,20 +109,22 @@ You can run `dainstall --help` to get more information about how
 `dainstall` works:
 
     usage: dainstall [-h] [--apiurl APIURL] [--apikey APIKEY] [--norestart]
-                     [--server SERVER] [--playground] [--project PROJECT] [--add]
-                     [--noconfig]
+                     [--force-restart] [--server SERVER] [--playground]
+                     [--project PROJECT] [--add] [--noconfig]
                      [directory]
 
     positional arguments:
       directory
 
-    optional arguments:
+    options:
       -h, --help         show this help message and exit
       --apiurl APIURL    base url of your docassemble server, e.g.
                          https://da.example.com
       --apikey APIKEY    docassemble API key
       --norestart        do not restart the docassemble server after installing
                          package (only applicable in single-server environments)
+      --force-restart    unconditionally restart the docassemble server after
+                         installing package
       --server SERVER    use a particular server from the .docassemblecli config
                          file
       --playground       install into your Playground instead of into the server
@@ -153,6 +155,12 @@ installation only uses one server (which is typical) and you are not
 modifying .py files. In this case, it is not necessary for the Python
 web application to restart after the package has been installed. This
 will cause `dainstall` to return a few seconds faster than otherwise.
+
+The `--force-restart` option should be used when you want to make sure
+that **docassemble** restarts the Python web application after the
+package is installed. By default, `dainstall` will avoid restarting
+the server if the package has no module files and all of its
+dependencies (if any) are installed.
 
 By default, `dainstall` installs a package on the server. If you want
 to install a package into your Playground, you can use the
