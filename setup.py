@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="docassemblecli",
-    version="0.0.15",
+    version="0.0.16",
     author="Jonathan Pyle",
     author_email="jhpyle@gmail.com",
     description="CLI utilities for using docassemble",
