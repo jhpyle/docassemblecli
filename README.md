@@ -188,6 +188,12 @@ The `dainstall` command is just a simple Python script that creates a
 ZIP file and uploads it through the **docassemble** API. Feel free to
 copy the code and write your own scripts to save yourself time.
 
+`dainstall` tries to exclude temporary files from the ZIP file, such
+as auto-save files created by text editors. It also excludes any files
+that `git` would exclude, so if you have `git` installed on your
+system, then you can edit the `.gitignore` file for your repository to
+exclude files that should not be part of the package.
+
 ## Automatically calling `dainstall`
 
 You can use the `bash` script `dawatchinstall` to call `dainstall`

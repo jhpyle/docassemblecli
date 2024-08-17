@@ -10,7 +10,7 @@ import argparse
 import yaml
 import requests
 import subprocess
-from packaging import version
+from packaging import version as packaging_version
 
 
 def select_server(env, apiname):
@@ -63,7 +63,7 @@ def wait_for_server(playground:bool, task_id, apikey, apiurl):
             full_url = apiurl + '/api/restart_status'
         else:
             full_url = apiurl + '/api/package_update_status'
-        r = requests.get(full_url, params={'task_id': task_id}, headers={'X-API-Key': apikey})
+        r = requests.get(full_url, params={'task_id': task_id}, headers={'X-API-Key': apikey}, timeout=600)
         if r.status_code != 200:
             sys.exit("package_update_status returned " + str(r.status_code) + ": " + r.text)
         info = r.json()
@@ -187,7 +187,7 @@ def dainstall():
     zf = zipfile.ZipFile(archive, compression=zipfile.ZIP_DEFLATED, mode='w')
     args.directory = re.sub(r'/$', '', args.directory)
     try:
-        ignore_process = subprocess.run(['git', 'ls-files', '-i', '--directory', '-o', '--exclude-standard'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, cwd=args.directory)
+        ignore_process = subprocess.run(['git', 'ls-files', '-i', '--directory', '-o', '--exclude-standard'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, cwd=args.directory, check=False)
         ignore_process.check_returncode()
         raw_ignore = ignore_process.stdout.splitlines()
     except:
@@ -220,7 +220,7 @@ def dainstall():
                                 else:
                                     dependencies[package_name] = {'installed': False, 'operator': None, 'version': None}
         for the_file in files:
-            if the_file.endswith('~') or the_file.endswith('.pyc') or the_file.startswith('#') or the_file.startswith('.#') or (the_file == '.gitignore' and root_directory == root) or os.path.join(adjusted_root, the_file) in to_ignore:
+            if the_file.endswith('~') or the_file.endswith('.pyc') or the_file.endswith('.swp') or the_file.startswith('#') or the_file.startswith('.#') or (the_file == '.gitignore' and root_directory == root) or os.path.join(adjusted_root, the_file) in to_ignore:
                 continue
             if not has_python_files and the_file.endswith('.py') and not (the_file == 'setup.py' and root == root_directory) and the_file != '__init__.py':
                 has_python_files = True
@@ -232,7 +232,7 @@ def dainstall():
     elif args.force_restart or has_python_files:
         should_restart = True
     elif len(dependencies) > 0 or this_package_name:
-        r = requests.get(apiurl + '/api/package', headers={'X-API-Key': apikey})
+        r = requests.get(apiurl + '/api/package', headers={'X-API-Key': apikey}, timeout=600)
         if r.status_code != 200:
             sys.exit("/api/package returned " + str(r.status_code) + ": " + r.text)
         installed_packages = r.json()
@@ -244,15 +244,15 @@ def dainstall():
                     condition = True
                     if dependency_info['operator']:
                         if dependency_info['operator'] == '==':
-                            condition = version.parse(package_info['version']) == version.parse(dependency_info['version'])
+                            condition = packaging_version.parse(package_info['version']) == packaging_version.parse(dependency_info['version'])
                         elif dependency_info['operator'] == '<=':
-                            condition = version.parse(package_info['version']) <= version.parse(dependency_info['version'])
+                            condition = packaging_version.parse(package_info['version']) <= packaging_version.parse(dependency_info['version'])
                         elif dependency_info['operator'] == '>=':
-                            condition = version.parse(package_info['version']) >= version.parse(dependency_info['version'])
+                            condition = packaging_version.parse(package_info['version']) >= packaging_version.parse(dependency_info['version'])
                         elif dependency_info['operator'] == '<':
-                            condition = version.parse(package_info['version']) < version.parse(dependency_info['version'])
+                            condition = packaging_version.parse(package_info['version']) < packaging_version.parse(dependency_info['version'])
                         elif dependency_info['operator'] == '>':
-                            condition = version.parse(package_info['version']) > version.parse(dependency_info['version'])
+                            condition = packaging_version.parse(package_info['version']) > packaging_version.parse(dependency_info['version'])
                     if condition:
                         dependency_info['installed'] = True
             if this_package_name and this_package_name in (package_info['name'], package_info['alt_name']):
@@ -267,17 +267,17 @@ def dainstall():
         if args.project and args.project != 'default':
             data['project'] = args.project
         project_endpoint = apiurl + '/api/playground/project'
-        project_list = requests.get(project_endpoint, headers={'X-API-Key': apikey})
+        project_list = requests.get(project_endpoint, headers={'X-API-Key': apikey}, timeout=600)
         if project_list.status_code == 200:
             if not args.project in project_list:
                 try:
-                    create_project = requests.post(project_endpoint, data={'project': args.project}, headers={'X-API-Key': apikey})
+                    requests.post(project_endpoint, data={'project': args.project}, headers={'X-API-Key': apikey}, timeout=600)
                 except:
-                    sys.exit("create project POST returned " + project_list.text)
+                    sys.exit("create project POST failed")
         else:
             sys.stdout.write("\n")
             sys.exit("playground list of projects GET returned " + str(project_list.status_code) + ": " + project_list.text)
-        r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey})
+        r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey}, timeout=600)
         if r.status_code == 400:
             try:
                 error_message = r.json()
@@ -285,11 +285,11 @@ def dainstall():
                 error_message = ''
             if 'project' not in data or error_message != 'Invalid project.':
                 sys.exit('playground_install POST returned ' + str(r.status_code) + ": " + r.text)
-            r = requests.post(apiurl + '/api/playground/project', data={'project': data['project']}, headers={'X-API-Key': apikey})
+            r = requests.post(apiurl + '/api/playground/project', data={'project': data['project']}, headers={'X-API-Key': apikey}, timeout=600)
             if r.status_code != 204:
                 sys.exit("needed to create playground project but POST to api/playground/project returned " + str(r.status_code) + ": " + r.text)
             archive.seek(0)
-            r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey})
+            r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey}, timeout=600)
         if r.status_code == 200:
             try:
                 info = r.json()
@@ -308,7 +308,7 @@ def dainstall():
         else:
             sys.exit("\nInstall failed\n")
     else:
-        r = requests.post(apiurl + '/api/package', data=data, files={'zip': archive}, headers={'X-API-Key': apikey})
+        r = requests.post(apiurl + '/api/package', data=data, files={'zip': archive}, headers={'X-API-Key': apikey}, timeout=600)
         if r.status_code != 200:
             sys.exit("package POST returned " + str(r.status_code) + ": " + r.text)
         info = r.json()
@@ -316,14 +316,13 @@ def dainstall():
         if wait_for_server(args.playground, task_id, apikey, apiurl):
             sys.stdout.write("\nInstalled.\n")
         if not should_restart:
-            r = requests.post(apiurl + '/api/clear_cache', headers={'X-API-Key': apikey})
+            r = requests.post(apiurl + '/api/clear_cache', headers={'X-API-Key': apikey}, timeout=600)
             if r.status_code != 204:
                 sys.exit("clear_cache returned " + str(r.status_code) + ": " + r.text)
     sys.exit(0)
 
 
 def dacreate():
-    dotfile = os.path.join(os.path.expanduser('~'), '.docassemblecli')
     parser = argparse.ArgumentParser()
     parser.add_argument("package", help="name of the package you want to create", nargs='?')
     parser.add_argument("--developer-name", help="name of the developer of the package")
@@ -336,7 +335,7 @@ def dacreate():
     args = parser.parse_args()
     pkgname = args.package
     if not pkgname:
-       pkgname = input('Name of the package you want to create (e.g., childsupport): ')
+        pkgname = input('Name of the package you want to create (e.g., childsupport): ')
     pkgname = re.sub(r'\s', '', pkgname)
     if not pkgname:
         sys.exit("The package name you entered is invalid.")
@@ -373,11 +372,11 @@ def dacreate():
         package_url = input('URL of package [https://docassemble.org]: ').strip()
         if not package_url:
             package_url = "https://docassemble.org"
-    license = args.license
-    if not license:
-        license = input('License of package [MIT]: ').strip()
-        if not license:
-            license = "MIT"
+    license_txt = args.license
+    if not license_txt:
+        license_txt = input('License of package [MIT]: ').strip()
+        if not license_txt:
+            license_txt = "MIT"
     version = args.version
     if not version:
         version = input('Version of package [0.0.1]: ').strip()
@@ -387,8 +386,8 @@ def dacreate():
 __import__('pkg_resources').declare_namespace(__name__)
 
 """
-    if 'MIT' in license:
-        licensetext = 'The MIT License (MIT)\n\nCopyright (c) ' + str(datetime.datetime.now().year) + ' ' + developer_name + """
+    if 'MIT' in license_txt:
+        license_content = 'The MIT License (MIT)\n\nCopyright (c) ' + str(datetime.datetime.now().year) + ' ' + developer_name + """
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -409,7 +408,51 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
     else:
-        licensetext = license + "\n"
+        license_content = license_txt + "\n"
+    gitignore = """\
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.dmypy.json
+dmypy.json
+*.egg-info/
+.installed.cfg
+*.egg
+.vscode
+*~
+.#*
+en
+*/auto
+.history/
+.idea
+.dir-locals.el
+.flake8
+*.swp
+.DS_Store
+.envrc
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+"""
     readme = '# docassemble.' + pkgname + "\n\n" + description + "\n\n## Author\n\n" + developer_name + ", " + developer_email + "\n"
     manifestin = """\
 include README.md
@@ -472,7 +515,7 @@ def find_package_data(where='.', package='', exclude=standard_exclude, exclude_d
       long_description_content_type='text/markdown',
       author=""" + repr(developer_name) + """,
       author_email=""" + repr(developer_email) + """,
-      license=""" + repr(license) + """,
+      license=""" + repr(license_txt) + """,
       url=""" + repr(package_url) + """,
       packages=find_packages(),
       namespace_packages=['docassemble'],
@@ -494,10 +537,12 @@ def find_package_data(where='.', package='', exclude=standard_exclude, exclude_d
         os.makedirs(staticdir, exist_ok=True)
     if not os.path.isdir(sourcesdir):
         os.makedirs(sourcesdir, exist_ok=True)
+    with open(os.path.join(packagedir, '.gitignore'), 'w', encoding='utf-8') as the_file:
+        the_file.write(gitignore)
     with open(os.path.join(packagedir, 'README.md'), 'w', encoding='utf-8') as the_file:
         the_file.write(readme)
     with open(os.path.join(packagedir, 'LICENSE'), 'w', encoding='utf-8') as the_file:
-        the_file.write(licensetext)
+        the_file.write(license_content)
     with open(os.path.join(packagedir, 'setup.py'), 'w', encoding='utf-8') as the_file:
         the_file.write(setuppy)
     with open(os.path.join(packagedir, 'setup.cfg'), 'w', encoding='utf-8') as the_file:
