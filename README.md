@@ -241,7 +241,7 @@ afterward. However, it will restart the server if you modify a `.py`
 file, because otherwise you would not be able to see the effect of the
 change. If you are using `--playground`, the `dainstall --watch`
 feature will only upload the specific file or files that you modified,
-rather than uploading the whole package. The first time
+rather than uploading the whole package.
 
 Thus, for the fastest development experience, use `--watch` and
 `--playground`.
