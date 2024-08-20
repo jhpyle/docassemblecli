@@ -1,5 +1,6 @@
 import re
 import datetime
+import shutil
 import zipfile
 import stat
 import tempfile
@@ -11,13 +12,251 @@ import yaml
 import requests
 import subprocess
 from packaging import version as packaging_version
+from watchdog.observers import Observer
+from watchdog.events import RegexMatchingEventHandler
+import asyncio
+import signal
+import hashlib
+from pathlib import Path
+
+IGNORE_REGEXES = ['.*/\.git$', '.*/\.git/.*', '.*~$', '.*/\.?\#.*', '.*/\.?flycheck_.*', '.*__pycache__.*', '.*/\.mypy_cache/.*', '.*\.egg-info.*', '.*\.py[cod]$', '.*\$py\.class$', '.*\.swp$', '.*/build/.*']
+IGNORE_DIRS = ['.git', '__pycache__', '.mypy_cache', '.venv', '.history', 'build']
+SETTLE_DELAY = 0.6  # Delay in seconds to let the local system become settled after an event. The optimal value depends on how local applications modify files.
+
+if os.sep == '\\':
+    IGNORE_REGEXES = [item.replace('/', '\\\\') for item in IGNORE_REGEXES]
+
+observer = None
+full_install_done = False
+checksums = {}  # type: ignore[var-annotated]
+
+def checksum_is_same(path):
+    path = os.path.abspath(path)
+    with open(path, "rb") as fp:
+        new_checksum = hashlib.md5(fp.read()).hexdigest()
+    response = checksums.get(path, '') == new_checksum
+    checksums[path] = new_checksum
+    return response
+
+def debug_log(args, message):
+    if args.debug:
+        sys.stderr.write(message + "\n")
+
+class TerminalException(Exception):
+    pass
+
+class GracefulExit(SystemExit):
+    code = 1
+
+class WatchHandler(RegexMatchingEventHandler):
+    def __init__(self, queue: asyncio.Queue, loop: asyncio.BaseEventLoop, data: dict, *args, **kwargs):
+        self._loop = loop
+        self._queue = queue
+        self._data = data
+        super().__init__(*args, **kwargs)
+
+    def on_any_event(self, event):
+        if event.event_type not in ('opened', 'closed') and not (event.is_directory and event.event_type == 'modified'):
+            debug_log(self._data['args'], "Got event " + repr(event.event_type) + " on " + repr(event.src_path))
+            invalid = False
+            the_path = os.path.abspath(event.src_path)
+            for comparison_path in self._data['to_ignore']:
+                if the_path.startswith(comparison_path):
+                    invalid = True
+                    break
+            if not invalid:
+                self._loop.call_soon_threadsafe(self._queue.put_nowait, {'event_type': event.event_type, 'is_directory': event.is_directory, 'src_path': the_path, 'time': time.time()})
+
+def update_to_do(queue, to_do):
+    try:
+        while True:
+            to_do.append(queue.get_nowait())
+    except asyncio.QueueEmpty:
+        pass
+
+async def handle_event_after_delay(queue, to_do, data):
+    global full_install_done
+    await asyncio.sleep(SETTLE_DELAY)
+    first_time = True
+    something_done = False
+    while len(to_do) > 0:
+        manual_mode = False
+        for event in to_do:
+            if event['event_type'] == 'manual':
+                manual_mode = True
+                first_time = False
+                break
+        if first_time:
+            update_to_do(queue, to_do)
+            while time.time() - to_do[-1]['time'] < 0.05:  # If it looks like the events are still coming in, wait and check the queue again
+                await asyncio.sleep(0.1)
+                update_to_do(queue, to_do)
+            try:
+                to_do.append(queue.get_nowait())
+            except asyncio.QueueEmpty:
+                pass
+        seen = set()
+        unduplicated_to_do = []
+        for event in to_do:
+            if event['src_path'] in seen:
+                continue
+            seen.add(event['src_path'])
+            if event['event_type'] == 'modified' and checksum_is_same(event['src_path']):
+                debug_log(data['args'], event['src_path'] + " was not actually changed; disregarding.")
+                continue
+            unduplicated_to_do.append(event)
+        if len(unduplicated_to_do) > 0:
+            something_done = True
+            if not data['args'].norestart and full_install_done and not data['args'].force_restart and not manual_mode:
+                # The installation will not trigger a restart unless:
+                # 1. A flag specifies that a restart should or should not happen.
+                # 2. This is the first install.
+                # 3. The installer is triggered manually.
+                data['args'].norestart = True
+                for event in unduplicated_to_do:
+                    if event['event_type'] == 'manual' or event['src_path'].endswith('.py'):
+                        data['args'].norestart = False
+                        break
+            debug_log(data['args'], "not going to restart the server" if data['args'].norestart else "going to restart the server")
+            if manual_mode:
+                single_file_appropriate = False
+            else:
+                if not full_install_done:
+                    single_file_appropriate = False
+                else:
+                    single_file_appropriate = data['args'].playground
+                    if single_file_appropriate:
+                        for event in unduplicated_to_do:
+                            if event['src_path'].endswith('.py') and event['event_type'] == 'deleted':
+                                single_file_appropriate = False
+                                break
+                sys.stdout.write("Detected changes to:\n")
+                for path in set(item['src_path'][data['trim']:] for item in unduplicated_to_do):
+                    sys.stdout.write(f"{path}\n")
+                sys.stdout.flush()
+            if single_file_appropriate:
+                other_files_involved = False
+                todo_by_folder = {'questions': set(), 'sources': set(), 'static': set(), 'templates': set(), 'modules': set()}
+                for event in unduplicated_to_do:
+                    if event['is_directory']:
+                        debug_log(data['args'], event['src_path'] + " is a directory, so skipping it")
+                        continue
+                    if event['event_type'] == 'deleted':
+                        debug_log(data['args'], event['src_path'] + " was deleted, so no need to upload anything")
+                        continue
+                    path = '/'.join(os.path.normpath(event['src_path']).split(os.sep))
+                    m = re.search(r'/docassemble/([^/]+)/data/([^/]+)/', path)
+                    if m:
+                        if m.group(2) in ('questions', 'sources', 'static', 'templates'):
+                            todo_by_folder[m.group(2)].add(event['src_path'])
+                    else:
+                        m = re.search(r'/docassemble/([^/]+)/([^/]+)\.py$', path)
+                        if m:
+                            todo_by_folder['modules'].add(event['src_path'])
+                        else:
+                            other_files_involved = True
+                            debug_log(data['args'], event['src_path'] + " changed, so the whole package will be uploaded")
+                            break
+                if other_files_involved:
+                    try:
+                        do_install(data['args'], data['apikey'], data['apiurl'], data['to_ignore'])
+                    except TerminalException as err:
+                        sys.stderr.write("Install failed: " + str(err) + "\n")
+                else:
+                    for folder in ('questions', 'sources', 'static', 'templates', 'modules'):
+                        if len(todo_by_folder[folder]) > 0:
+                            debug_log(data['args'], "Uploading " + repr(todo_by_folder[folder]) + " to " + folder)
+                            list_of_files = list(todo_by_folder[folder])
+                            for file_path in list_of_files:
+                                sys.stdout.write("Uploading " + file_path[data['trim']:] + " to " + folder + "\n")
+                                sys.stdout.flush()
+                                post_data = {'folder': folder, 'restart': '1' if folder == 'modules' and file_path == list_of_files[-1] else '0'}
+                                if data['args'].project and data['args'].project != 'default':
+                                    post_data['project'] = data['args'].project
+                                try:
+                                    r = requests.post(data['apiurl'] + '/api/playground', data=post_data, files={'file': open(file_path, 'rb')}, headers={'X-API-Key': data['apikey']}, timeout=50)
+                                    if r.status_code == 200:
+                                        try:
+                                            info = r.json()
+                                        except:
+                                            raise TerminalException("Server did not return JSON: " + r.text)
+                                        task_id = info['task_id']
+                                        success = wait_for_server(True, task_id, data['apikey'], data['apiurl'])
+                                        if not success:
+                                            sys.stderr.write("Failed to upload " + file_path + ". Restart process did not return a success code.\n")
+                                    elif r.status_code == 204:
+                                        success = True
+                                    else:
+                                        success = False
+                                    if not success:
+                                        sys.stderr.write("Failed to upload " + file_path + "\n" + r.text + "\n")
+                                except requests.exceptions.Timeout:
+                                    sys.stderr.write("Server timed out while uploading " + file_path)
+            else:
+                if manual_mode:
+                    important_file_updated = True
+                else:
+                    important_file_updated = False
+                    for event in unduplicated_to_do:
+                        if event['is_directory']:
+                            debug_log(data['args'], event['src_path'] + " is a directory, so skipping this event")
+                        else:
+                            important_file_updated = True
+                            break
+                if important_file_updated:
+                    try:
+                        if not full_install_done:
+                            if manual_mode:
+                                sys.stdout.write("Doing an initial upload of the whole package to make sure the current version of the package exists in the Playground. Subsequent uploads will be incremental.\n")
+                            sys.stdout.flush()
+                        do_install(data['args'], data['apikey'], data['apiurl'], data['to_ignore'])
+                        full_install_done = True
+                        debug_log(data['args'], "Finished the full install.")
+                    except TerminalException as err:
+                        sys.stderr.write("Install failed: " + str(err) + "\n")
+        debug_log(data['args'], "Starting marking events as handled")
+        for event in to_do:  # pylint: disable=unused-variable
+            queue.task_done()
+        debug_log(data['args'], "Finished marking events as handled")
+        to_do = []
+        debug_log(data['args'], "Starting seeing if any additional events arrived")
+        update_to_do(queue, to_do)
+        debug_log(data['args'], "Finished seeing if any additional events arrived")
+        first_time = False
+    if something_done:
+        sys.stdout.write("Done.\n")
+        sys.stdout.flush()
+
+async def add_manual_event_to_queue(loop, queue):
+    await asyncio.sleep(0.01)
+    loop.call_soon_threadsafe(queue.put_nowait, {'event_type': 'manual', 'is_directory': False, 'src_path': '', 'time': time.time()})
+
+async def wait_for_item_in_queue(queue, data):
+    while True:
+        first_item = await queue.get()
+        asyncio.create_task(handle_event_after_delay(queue, [first_item], data))
+        await queue.join()
+
+def watch(path: Path, queue: asyncio.Queue, loop: asyncio.BaseEventLoop,
+          data: dict, recursive: bool = False) -> None:
+    global observer
+    handler = WatchHandler(queue, loop, data, ignore_regexes=data['ignore_regexes'])
+    observer = Observer()
+    observer.schedule(handler, str(path), recursive=recursive)
+    observer.start()
+    try:
+        observer.join()
+    finally:
+        observer.stop()
+        observer.join()
+    loop.call_soon_threadsafe(queue.put_nowait, None)
 
 
 def select_server(env, apiname):
     for item in env:
         if item.get('name', None) == apiname:
             return item
-    sys.exit("Server " + apiname + " is not present in the .docassemblecli file")
+    raise TerminalException("Server " + apiname + " is not present in the .docassemblecli file")
 
 
 def save_dotfile(dotfile, env):
@@ -26,7 +265,7 @@ def save_dotfile(dotfile, env):
             yaml.dump(env, fp)
         os.chmod(dotfile, stat.S_IRUSR | stat.S_IWUSR)
     except Exception as err:
-        print("Unable to save .docassemblecli file.  " + err.__class__.__name__ + ": " + str(err))
+        sys.stderr.write("Unable to save .docassemblecli file.  " + err.__class__.__name__ + ": " + str(err) + "\n")
         return False
     return True
 
@@ -51,7 +290,13 @@ def name_from_url(url):
 
 
 def wait_for_server(playground:bool, task_id, apikey, apiurl):
-    sys.stdout.write("Waiting for package to install.")
+    if playground:
+        sys.stdout.write("Waiting for server to restart.")
+    else:
+        sys.stdout.write("Waiting for package to install.")
+    sys.stdout.flush()
+    time.sleep(1)
+    sys.stdout.write(".")
     sys.stdout.flush()
     time.sleep(1)
     sys.stdout.write(".")
@@ -63,9 +308,16 @@ def wait_for_server(playground:bool, task_id, apikey, apiurl):
             full_url = apiurl + '/api/restart_status'
         else:
             full_url = apiurl + '/api/package_update_status'
-        r = requests.get(full_url, params={'task_id': task_id}, headers={'X-API-Key': apikey}, timeout=600)
+        try:
+            r = requests.get(full_url, params={'task_id': task_id}, headers={'X-API-Key': apikey}, timeout=6)
+        except requests.exceptions.Timeout:
+            sys.stdout.write(".")
+            sys.stdout.flush()
+            time.sleep(2)
+            tries += 1
+            continue
         if r.status_code != 200:
-            sys.exit("package_update_status returned " + str(r.status_code) + ": " + r.text)
+            raise TerminalException("package_update_status returned " + str(r.status_code) + ": " + r.text)
         info = r.json()
         if info['status'] == 'completed' or info['status'] == 'unknown':
             break
@@ -81,46 +333,50 @@ def wait_for_server(playground:bool, task_id, apikey, apiurl):
         success = True
     if success:
         return True
-    sys.stdout.write("\nUnable to install package.\n")
+    sys.stderr.write("\nUnable to install package.\n")
     if not playground:
         if 'error_message' in info and isinstance(info['error_message'], str):
-            print(info['error_message'])
+            sys.stderr.write(info['error_message'] + "\n")
         else:
-            print(info)
+            sys.stderr.write(repr(info))
+            sys.stderr.write("\n")
     sys.stdout.flush()
     return False
 
 
 def dainstall():
+    # global full_install_done
     dotfile = os.path.join(os.path.expanduser('~'), '.docassemblecli')
     parser = argparse.ArgumentParser()
     parser.add_argument("directory", nargs='?')
     parser.add_argument("--apiurl", help="base url of your docassemble server, e.g. https://da.example.com")
     parser.add_argument("--apikey", help="docassemble API key")
     parser.add_argument("--norestart", help="do not restart the docassemble server after installing package (only applicable in single-server environments)", action="store_true")
+    parser.add_argument("--watch", help="watch the directory for changes and install changes when there is a change", action="store_true")
     parser.add_argument("--force-restart", help="unconditionally restart the docassemble server after installing package", action="store_true")
     parser.add_argument("--server", help="use a particular server from the .docassemblecli config file")
     parser.add_argument("--playground", help="install into your Playground instead of into the server", action="store_true")
     parser.add_argument("--project", help="install into a specific project in the Playground")
     parser.add_argument("--add", help="add another server to the .docassemblecli config file", action="store_true")
     parser.add_argument("--noconfig", help="do not use the .docassemblecli config file", action="store_true")
+    parser.add_argument("--debug", help="use verbose logging", action="store_true")
     args = parser.parse_args()
     if args.norestart and args.force_restart:
-        sys.exit("The --norestart option can cannot be used with --force-restart.")
+        return("The --norestart option can cannot be used with --force-restart.")
     if args.project and not args.playground:
-        sys.exit("The --project option can only be used with --playground.")
+        return("The --project option can only be used with --playground.")
     if not args.add:
         if args.directory is None:
             parser.print_help()
-            sys.exit(1)
+            return(1)
         if not os.path.isdir(args.directory):
-            sys.exit(args.directory + " could not be found.")
+            return(args.directory + " could not be found.")
         if not os.path.isfile(os.path.join(args.directory, 'setup.py')):
-            sys.exit(args.directory + " does not contain a setup.py file, so it is not the directory of a Python package.")
+            return(args.directory + " does not contain a setup.py file, so it is not the directory of a Python package.")
     used_input = False
     if args.noconfig:
         if args.add:
-            sys.exit("Using --add is not compatible with --noconfig.  Exiting.")
+            return("Using --add is not compatible with --noconfig.  Exiting.")
         env = []
     else:
         if os.path.isfile(dotfile):
@@ -128,7 +384,7 @@ def dainstall():
                 with open(dotfile, 'r', encoding='utf-8') as fp:
                     env = yaml.load(fp, Loader=yaml.FullLoader)
             except Exception as err:
-                print("Unable to load .docassemblecli file.  " + err.__class__.__name__ + ": " + str(err))
+                sys.stderr.write("Unable to load .docassemblecli file.  " + err.__class__.__name__ + ": " + str(err) + "\n")
                 env = []
         else:
             env = []
@@ -137,7 +393,7 @@ def dainstall():
             env = [env]
             used_input = True
         if not isinstance(env, list):
-            print("Format of .docassemblecli file is not a list; ignoring.")
+            sys.stderr.write("Format of .docassemblecli file is not a list; ignoring.\n")
             env = []
     if args.add:
         if args.apiurl:
@@ -150,10 +406,13 @@ def dainstall():
             apikey = input('API key of admin user on ' + apiurl + ': ').strip()
         add_or_update_env(env, apiurl, apikey)
         if save_dotfile(dotfile, env):
-            print("Saved base URL and API key to .docassemblecli as server " + name_from_url(apiurl))
-        sys.exit(0)
+            sys.stdout.write("Saved base URL and API key to .docassemblecli as server " + name_from_url(apiurl) + "\n")
+        return(0)
     if args.server:
-        selected_env = select_server(env, args.server)
+        try:
+            selected_env = select_server(env, args.server)
+        except TerminalException as err:
+            return(str(err))
     elif len(env) > 0:
         selected_env = env[0]
     else:
@@ -168,7 +427,7 @@ def dainstall():
         used_input = True
         apiurl = input('Base URL of your docassemble server (e.g., https://da.example.com): ')
     if not re.search(r'^https?://[^\s]+$', apiurl):
-        sys.exit("Invalid API url " + apiurl)
+        return("Invalid API url " + apiurl)
     apiurl = re.sub(r'/+$', '', apiurl)
     if args.apikey:
         apikey = args.apikey
@@ -182,24 +441,71 @@ def dainstall():
     if used_input and not args.noconfig:
         add_or_update_env(env, apiurl, apikey)
         if save_dotfile(dotfile, env):
-            print("Saved base URL and API key to .docassemblecli as server " + name_from_url(apiurl))
-    archive = tempfile.NamedTemporaryFile(suffix=".zip")
-    zf = zipfile.ZipFile(archive, compression=zipfile.ZIP_DEFLATED, mode='w')
+            sys.stdout.write("Saved base URL and API key to .docassemblecli as server " + name_from_url(apiurl) + "\n")
     args.directory = re.sub(r'/$', '', args.directory)
-    try:
-        ignore_process = subprocess.run(['git', 'ls-files', '-i', '--directory', '-o', '--exclude-standard'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, cwd=args.directory, check=False)
-        ignore_process.check_returncode()
-        raw_ignore = ignore_process.stdout.splitlines()
-    except:
+    if shutil.which("git") is not None:
+        try:
+            ignore_process = subprocess.run(['git', 'ls-files', '-i', '--directory', '-o', '--exclude-standard'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, cwd=args.directory, check=False)
+            ignore_process.check_returncode()
+            raw_ignore = ignore_process.stdout.splitlines()
+        except:
+            raw_ignore = []
+    else:
         raw_ignore = []
     to_ignore = [path.rstrip('/') for path in raw_ignore]
+    package_name = os.path.basename(os.path.abspath(args.directory))
+    try:
+        test_response = requests.get(apiurl + '/api/playground/project', headers={'X-API-Key': apikey}, timeout=50)
+        assert test_response.status_code == 200
+    except:
+        return("Unable to connect to server.")
+    if args.watch:
+        data = {"args": args, "apikey": apikey, "apiurl": apiurl, "to_ignore": [os.path.abspath(os.path.join(args.directory, item)) for item in to_ignore], 'ignore_regexes': IGNORE_REGEXES, 'trim': 1 + len(os.path.abspath(args.directory))}
+        # if args.playground:
+        #     sys.stdout.write("Doing an initial upload of " + package_name + " to make sure the package is uploaded to the Playground. Subsequent uploads will be incremental.\n")
+        #     do_install(data['args'], data['apikey'], data['apiurl'], data['to_ignore'])
+        #     full_install_done = True
+        sys.stdout.write("Watching " + package_name + " for changes.\n")
+        loop = asyncio.get_event_loop()
+        queue = asyncio.Queue()
+        futures = [
+            loop.run_in_executor(None, watch, Path(args.directory), queue, loop, data, True),
+            wait_for_item_in_queue(queue, data),
+        ]
+        if args.playground:
+            futures.append(add_manual_event_to_queue(loop, queue))
+        main_task = asyncio.gather(*futures)
+        def raise_graceful_exit(*args):  # pylint: disable=unused-argument
+            sys.stdout.write("\nExiting\n")
+            main_task.cancel()
+            raise GracefulExit()
+        signal.signal(signal.SIGINT, raise_graceful_exit)
+        signal.signal(signal.SIGTERM, raise_graceful_exit)
+        try:
+            loop.run_until_complete(main_task)
+        except (asyncio.CancelledError, GracefulExit):
+            if observer is not None:
+                observer.stop()
+            loop.close()
+        sys.stdout.write("\n")
+        return(0)
+    try:
+        do_install(args, apikey, apiurl, to_ignore)
+    except TerminalException as err:
+        return(str(err))
+    return(0)
+
+
+def do_install(args, apikey, apiurl, to_ignore):
+    archive = tempfile.NamedTemporaryFile(suffix=".zip")
+    zf = zipfile.ZipFile(archive, compression=zipfile.ZIP_DEFLATED, mode='w')
     root_directory = None
     has_python_files = False
     this_package_name = None
     dependencies = {}
     for root, dirs, files in os.walk(args.directory, topdown=True):
         adjusted_root = os.sep.join(root.split(os.sep)[1:])
-        dirs[:] = [d for d in dirs if d not in ['.git', '__pycache__', '.mypy_cache', '.venv', '.history', 'build'] and not d.endswith('.egg-info') and os.path.join(adjusted_root, d) not in to_ignore]
+        dirs[:] = [d for d in dirs if d not in IGNORE_DIRS and not d.startswith('flycheck_') and not d.endswith('.egg-info') and os.path.join(adjusted_root, d) not in to_ignore]
         if root_directory is None and ('setup.py' in files or 'setup.cfg' in files):
             root_directory = root
             if 'setup.py' in files:
@@ -220,10 +526,12 @@ def dainstall():
                                 else:
                                     dependencies[package_name] = {'installed': False, 'operator': None, 'version': None}
         for the_file in files:
-            if the_file.endswith('~') or the_file.endswith('.pyc') or the_file.endswith('.swp') or the_file.startswith('#') or the_file.startswith('.#') or (the_file == '.gitignore' and root_directory == root) or os.path.join(adjusted_root, the_file) in to_ignore:
+            if the_file.endswith('~') or the_file.endswith('.pyc') or the_file.endswith('.swp') or the_file.startswith('#') or the_file.startswith('.#') or the_file.startswith('.flycheck_') or (the_file == '.gitignore' and root_directory == root) or os.path.join(adjusted_root, the_file) in to_ignore:
                 continue
             if not has_python_files and the_file.endswith('.py') and not (the_file == 'setup.py' and root == root_directory) and the_file != '__init__.py':
                 has_python_files = True
+            if args.watch:
+                checksum_is_same(os.path.join(root, the_file))
             zf.write(os.path.join(root, the_file), os.path.relpath(os.path.join(root, the_file), os.path.join(args.directory, '..')))
     zf.close()
     archive.seek(0)
@@ -232,9 +540,9 @@ def dainstall():
     elif args.force_restart or has_python_files:
         should_restart = True
     elif len(dependencies) > 0 or this_package_name:
-        r = requests.get(apiurl + '/api/package', headers={'X-API-Key': apikey}, timeout=600)
+        r = requests.get(apiurl + '/api/package', headers={'X-API-Key': apikey}, timeout=50)
         if r.status_code != 200:
-            sys.exit("/api/package returned " + str(r.status_code) + ": " + r.text)
+            raise TerminalException("/api/package returned " + str(r.status_code) + ": " + r.text)
         installed_packages = r.json()
         already_installed = False
         for package_info in installed_packages:
@@ -267,59 +575,58 @@ def dainstall():
         if args.project and args.project != 'default':
             data['project'] = args.project
         project_endpoint = apiurl + '/api/playground/project'
-        project_list = requests.get(project_endpoint, headers={'X-API-Key': apikey}, timeout=600)
+        project_list = requests.get(project_endpoint, headers={'X-API-Key': apikey}, timeout=50)
         if project_list.status_code == 200:
             if not args.project in project_list:
                 try:
-                    requests.post(project_endpoint, data={'project': args.project}, headers={'X-API-Key': apikey}, timeout=600)
+                    requests.post(project_endpoint, data={'project': args.project}, headers={'X-API-Key': apikey}, timeout=50)
                 except:
-                    sys.exit("create project POST failed")
+                    raise TerminalException("create project POST failed")
         else:
             sys.stdout.write("\n")
-            sys.exit("playground list of projects GET returned " + str(project_list.status_code) + ": " + project_list.text)
-        r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey}, timeout=600)
+            raise TerminalException("playground list of projects GET returned " + str(project_list.status_code) + ": " + project_list.text)
+        r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey}, timeout=50)
         if r.status_code == 400:
             try:
                 error_message = r.json()
             except:
                 error_message = ''
             if 'project' not in data or error_message != 'Invalid project.':
-                sys.exit('playground_install POST returned ' + str(r.status_code) + ": " + r.text)
-            r = requests.post(apiurl + '/api/playground/project', data={'project': data['project']}, headers={'X-API-Key': apikey}, timeout=600)
+                raise TerminalException('playground_install POST returned ' + str(r.status_code) + ": " + r.text)
+            r = requests.post(apiurl + '/api/playground/project', data={'project': data['project']}, headers={'X-API-Key': apikey}, timeout=50)
             if r.status_code != 204:
-                sys.exit("needed to create playground project but POST to api/playground/project returned " + str(r.status_code) + ": " + r.text)
+                raise TerminalException("needed to create playground project but POST to api/playground/project returned " + str(r.status_code) + ": " + r.text)
             archive.seek(0)
-            r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey}, timeout=600)
+            r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey}, timeout=50)
         if r.status_code == 200:
             try:
                 info = r.json()
             except:
-                sys.exit(r.text)
+                raise TerminalException(r.text)
             task_id = info['task_id']
             success = wait_for_server(args.playground, task_id, apikey, apiurl)
         elif r.status_code == 204:
             success = True
         else:
             sys.stdout.write("\n")
-            sys.exit("playground_install POST returned " + str(r.status_code) + ": " + r.text)
+            raise TerminalException("playground_install POST returned " + str(r.status_code) + ": " + r.text)
         if success:
             sys.stdout.write("\nInstalled.\n")
             sys.stdout.flush()
         else:
-            sys.exit("\nInstall failed\n")
+            raise TerminalException("\nInstall failed\n")
     else:
-        r = requests.post(apiurl + '/api/package', data=data, files={'zip': archive}, headers={'X-API-Key': apikey}, timeout=600)
+        r = requests.post(apiurl + '/api/package', data=data, files={'zip': archive}, headers={'X-API-Key': apikey}, timeout=50)
         if r.status_code != 200:
-            sys.exit("package POST returned " + str(r.status_code) + ": " + r.text)
+            raise TerminalException("package POST returned " + str(r.status_code) + ": " + r.text)
         info = r.json()
         task_id = info['task_id']
         if wait_for_server(args.playground, task_id, apikey, apiurl):
             sys.stdout.write("\nInstalled.\n")
         if not should_restart:
-            r = requests.post(apiurl + '/api/clear_cache', headers={'X-API-Key': apikey}, timeout=600)
+            r = requests.post(apiurl + '/api/clear_cache', headers={'X-API-Key': apikey}, timeout=50)
             if r.status_code != 204:
-                sys.exit("clear_cache returned " + str(r.status_code) + ": " + r.text)
-    sys.exit(0)
+                raise TerminalException("clear_cache returned " + str(r.status_code) + ": " + r.text)
 
 
 def dacreate():
@@ -338,7 +645,7 @@ def dacreate():
         pkgname = input('Name of the package you want to create (e.g., childsupport): ')
     pkgname = re.sub(r'\s', '', pkgname)
     if not pkgname:
-        sys.exit("The package name you entered is invalid.")
+        return("The package name you entered is invalid.")
     pkgname = re.sub(r'^docassemble[\-\.]', '', pkgname, flags=re.IGNORECASE)
     if args.output:
         packagedir = args.output
@@ -346,10 +653,10 @@ def dacreate():
         packagedir = 'docassemble-' + pkgname
     if os.path.exists(packagedir):
         if not os.path.isdir(packagedir):
-            sys.exit("Cannot create the directory " + packagedir + " because the path already exists.")
+            return("Cannot create the directory " + packagedir + " because the path already exists.")
         dir_listing = list(os.listdir(packagedir))
         if 'setup.py' in dir_listing or 'setup.cfg' in dir_listing:
-            sys.exit("The directory " + packagedir + " already has a package in it.")
+            return("The directory " + packagedir + " already has a package in it.")
     else:
         os.makedirs(packagedir, exist_ok=True)
     developer_name = args.developer_name
@@ -524,7 +831,6 @@ def find_package_data(where='.', package='', exclude=standard_exclude, exclude_d
       package_data=find_package_data(where='docassemble/""" + pkgname + """/', package='docassemble.""" + pkgname + """'),
      )
 """
-    maindir = os.path.join(packagedir, 'docassemble', pkgname)
     questionsdir = os.path.join(packagedir, 'docassemble', pkgname, 'data', 'questions')
     templatesdir = os.path.join(packagedir, 'docassemble', pkgname, 'data', 'templates')
     staticdir = os.path.join(packagedir, 'docassemble', pkgname, 'data', 'static')
@@ -553,4 +859,4 @@ def find_package_data(where='.', package='', exclude=standard_exclude, exclude_d
         the_file.write(initpy)
     with open(os.path.join(packagedir, 'docassemble', pkgname, '__init__.py'), 'w', encoding='utf-8') as the_file:
         the_file.write("__version__ = " + repr(version) + "\n")
-    sys.exit(0)
+    return(0)

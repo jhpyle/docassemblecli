@@ -6,3 +6,5 @@ build
 dist
 newversion.sh
 .history
+.mypy_cache
+*/.mypy_cache

@@ -9,7 +9,7 @@ setup(
     author="Jonathan Pyle",
     author_email="jhpyle@gmail.com",
     description="CLI utilities for using docassemble",
-    install_requires=['pyyaml', 'requests', 'packaging'],
+    install_requires=['pyyaml', 'requests', 'packaging', 'watchdog'],
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/jhpyle/docassemblecli",
@@ -21,6 +21,11 @@ setup(
         "Operating System :: OS Independent",
     ],
     packages=find_packages(),
-    python_requires=">=2.7",
-    scripts=['bin/dainstall', 'bin/dacreate', 'bin/dawatchinstall']
+    python_requires=">=3.8",
+    entry_points={
+        'console_scripts': [
+            'dainstall = docassemblecli.commands:dainstall',
+            'dacreate = docassemblecli.commands:dacreate',
+        ],
+    }
 )

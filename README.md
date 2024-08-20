@@ -7,17 +7,51 @@ local machine, not on a [docassemble] server.
 ## Prerequisites
 
 The `dainstall` and `dacreate` programs require that you have Python
-installed on your computer. The `dawatchinstall` program requires
-`bash` and `fswatch`. These prerequisites are easy to find on Linux
-machines, but are harder to install on Windows and Mac systems. If you
-run Windows, see the last section of this README for instructions on
-getting a command line in Windows Subsystem for Linux.
+installed on your computer. If you are using MacOS or Linux, you
+probably have Python installed already.
+
+### Installing Python on Windows
+
+If you are using Windows and you have not installed Python before, it
+is recommended that you download Python from the [python.org download
+page] rather than using the Microsoft Store. When you run the
+installer, there will be two checkbox options ("Use admin privileges
+when installing py.exe" and "Add python.exe to PATH"), and you should
+check both of them. Later on in the installation, you may be prompted
+to extend the maximum length of the `PATH` variable beyond 250
+characters. You should click the button to make this
+change. Installing Python this way will make it much easier to run the
+`dainstall` and `dacreate` utilities because you will not need to
+manually adjust your `PATH`.
+
+Note that when you have installed Python on Windows, an application
+called "Python" will be available from the start menu. This
+application runs the [Python Interpreter]. The Python Interpreter is a
+very useful tool, but it is not the tool for installing
+`docassemblecli` or running the command line utilities `dacreate` and
+`dainstall`. To run these commands, you need to use the Windows
+command line application, called `cmd`.
+
+### Using a command line
+
+In order to install `docassemblecli` and use the `dainstall` and
+`dacreate` utilities, you will need to run an application that gives
+you a command line. On MacOS, you can use the [Terminal application],
+which comes with the operating system. On Windows, you can go to the
+start menu and search for "cmd," which is the name of the [Windows
+command line application].
 
 ## Installation
 
 To install `docassemblecli` from PyPI, run:
 
-    pip install docassemblecli
+    pip3 install docassemblecli
+
+If you get an error, you may not have installed Python, or may not
+have installed it correctly. If you only have Python 2.7 installed,
+install the latest version of Python instead (e.g., Python 3.12 or
+greater.) If you know you have installed Python, but `pip3` is not a
+recognized command, you might need to manually adjust your `PATH`.
 
 ## Usage
 
@@ -76,18 +110,19 @@ called `docassemble.foobar` using the **docassemble** Playground. In
 the Playground, you can download the package as a ZIP file called
 `docassemble-foobar.zip`. You can then unpack this ZIP file and you
 will see a folder called `docassemble-foobar`. Inside of this folder
-there is a folder called `docassemble` and a `setup.py` file.
+there is a folder called `docassemble` and a `setup.py` file. Your
+interview YAML files will be in the folder
+`docassemble/foobar/data/questions`. Your templates will be in the
+folder `docassemble/foobar/data/templates`. Your modules will be in
+the folder `docassemble/foobar`. Now you can use your favorite text
+editor to edit your `.yml` and `.py` files, and you can use
+`dainstall` to install the package on your server so that you can test
+your changes.
 
 From the command line, use `cd` to navigate to the folder that
 contains the `docassemble-foobar` folder. Then run:
 
     dainstall docassemble-foobar
-
-On Windows, you will need to write `python -m
-docassemblecli.dainstall` in place of `dainstall`, so your command
-will look like this:
-
-    python -m docassemblecli.dainstall docassemble-foobar
 
 The first time you run this command, it will ask you for the URL of
 your **docassemble** server and the [API key] of a user with `admin` or
@@ -109,8 +144,8 @@ You can run `dainstall --help` to get more information about how
 `dainstall` works:
 
     usage: dainstall [-h] [--apiurl APIURL] [--apikey APIKEY] [--norestart]
-                     [--force-restart] [--server SERVER] [--playground]
-                     [--project PROJECT] [--add] [--noconfig]
+                     [--watch] [--force-restart] [--server SERVER] [--playground]
+                     [--project PROJECT] [--add] [--noconfig] [--debug]
                      [directory]
 
     positional arguments:
@@ -123,6 +158,8 @@ You can run `dainstall --help` to get more information about how
       --apikey APIKEY    docassemble API key
       --norestart        do not restart the docassemble server after installing
                          package (only applicable in single-server environments)
+      --watch            watch the directory for changes and install changes when
+                         there is a change
       --force-restart    unconditionally restart the docassemble server after
                          installing package
       --server SERVER    use a particular server from the .docassemblecli config
@@ -131,6 +168,7 @@ You can run `dainstall --help` to get more information about how
       --project PROJECT  install into a specific project in the Playground
       --add              add another server to the .docassemblecli config file
       --noconfig         do not use the .docassemblecli config file
+      --debug            use verbose logging
 
 For example, you might want to pass the URL and API key in the command
 itself:
@@ -177,95 +215,65 @@ Installing into the Playground with `--playground` is faster than
 installing an actual Python package because it does not need to run
 `pip`.
 
-If your development installation uses more than one server, it is safe
-to run `dainstall --playground` with `--norestart` if you are only
-changing YAML files, because Playground YAML files are stored in cloud
-storage and will thus be available immediately to all servers.
+If you are using a multi-server configuration, it is safe to run
+`dainstall --playground` with `--norestart` if you are only changing
+YAML files, because Playground YAML files are stored in cloud storage
+and will thus be available immediately to all servers.
 
-## How it works
+You can run `dainstall` with the `--watch` option if you want your
+package to be automatically updated on the server every time a file in
+your package directory is changed.
 
-The `dainstall` command is just a simple Python script that creates a
-ZIP file and uploads it through the **docassemble** API. Feel free to
-copy the code and write your own scripts to save yourself time.
+For example, suppose you run:
 
-`dainstall` tries to exclude temporary files from the ZIP file, such
-as auto-save files created by text editors. It also excludes any files
-that `git` would exclude, so if you have `git` installed on your
-system, then you can edit the `.gitignore` file for your repository to
-exclude files that should not be part of the package.
-
-## Automatically calling `dainstall`
-
-You can use the `bash` script `dawatchinstall` to call `dainstall`
-automatically every time a file in your package directory is changed.
-
-For example, if you run:
-
-    dawatchinstall --playground --project testing docassemble-foobar
+    dainstall --watch --playground --project testing docassemble-foobar
 
 This will monitor the `docassemble-foobar` directory, and if any file
-changes, it will run:
+within the directory is modified, or a new file is created, the
+package will be reinstalled into the `testing` project of the
+Playground belonging to the owner of the API key.
 
-    dainstall --playground --project testing --norestart docassemble-foobar
+To exit, type Ctrl-c.
 
-If a `.py` file is changed, however, it will run
+The `--watch` feature tries to be as efficient as possible. If you
+modify a file in the `data` folder, it will not restart the server
+afterward. However, it will restart the server if you modify a `.py`
+file, because otherwise you would not be able to see the effect of the
+change. If you are using `--playground`, the `dainstall --watch`
+feature will only upload the specific file or files that you modified,
+rather than uploading the whole package. The first time
 
-    dainstall --playground --project testing docassemble-foobar
+Thus, for the fastest development experience, use `--watch` and
+`--playground`.
 
-With `dawatchinstall --playground` constantly running, then after you
-save a YAML file on your local machine, it will be available for
-testing on your server very quickly.
+If you encounter problems, try running dainstall with the `--debug`
+option.
 
-To exit `dawatchinstall`, type Ctrl-c.
+## Text editors that create hidden and temporary files
 
-To use this, both `dawatchinstall` and `dainstall` need to be in your
-path; if it is not, you will need to edit the `dawatchinstall` script
-so that it can successfully call the `dainstall` script.
+Text editors often create hidden files and hidden directories in your
+project folder for their own purposes, such as backup files and files
+that facilitate [linting]. This can be problematic when you are using
+`git`, because you do not want these temporary files to appear on
+GitHub. These files may cause `dainstall --watch` to think that a
+file in your project has been modified, when it actually has not.
 
-The `dawatchinstall` script depends on the `fswatch` command. If this
-command is not available on your system, you may need to install the
-`fswatch` package.
+The `dainstall` command tries to avoid this. If you have `git`
+installed, `dainstall` will call `git ls-files` to see what your
+`.gitignore` file is screening out, and then tries to avoid these
+files. It also uses regular expressions to avoid certain files and
+directories.
 
-## Running on Windows
-
-If you are running Windows, a relatively convenient way to install
-these command-line utilities is to use Windows Subsystem for Linux.
-
-In the Microsoft Store, search for "Ubuntu" and install it. This may
-require restarting your Windows machine. (Other Linux distributions
-will work just as well, so feel free to use a different distribution
-if you know what you are doing.)
-
-Then run the Ubuntu app and answer the prompts to complete the
-installation.
-
-From the Ubuntu command line, do:
-
-    sudo apt -y update
-    sudo apt -y install python3-pip fswatch
-    sudo pip install docassemblecli
-    dainstall --add
-
-The last command, `dainstall --add`, will ask for your docassemble
-site URL and your API key. The API key that you supply needs to belong
-to a user with `developer` or `admin` privileges.
-
-Use `cd` to switch to the directory above where your docassemble
-package is located. (Your Windows hard drive is located at `/mnt/c`
-inside of Ubuntu.)
-
-For example, assume you have a folder `docassemble-mypackage` on your
-Desktop, and your username on your machine is `jsmith`. You would do:
-
-    cd /mnt/c/Users/jsmith/Desktop/
-
-From there, you can run commands like:
-
-    dainstall docassemble-mypackage
-
-or
-
-    dawatchinstall --playground --project mypack docassemble-mypackage
+If your development environment triggers `dainstall --watch` too much,
+submit a GitHub issue in the `jhpyle/docassemblecli` repository
+explaining the situation. It may be possible to tweak the code to
+avoid the unnecessary triggering.
 
 [API key]: https://docassemble.org/docs/api.html#manage_api
 [docassemble]: https://docassemble.org
+[python.org download page]: https://www.python.org/downloads/
+[Python Interpreter]: https://docs.python.org/3/tutorial/interpreter.html
+[Terminal application]: https://support.apple.com/guide/terminal/welcome/mac
+[Windows command line application]: https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/windows-commands
+[linting]: https://en.wikipedia.org/wiki/Lint_%28software%29
+[VS Code]: https://code.visualstudio.com/
