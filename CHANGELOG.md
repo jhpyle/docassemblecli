@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.0.19 - 2024-09-11
+
+### Fixed
+- Avoid problem where a delete event and a modification event come in
+  at the same moment.
+- More regular expressions for avoiding temporary files.
+
 ## 0.0.18 - 2024-08-20
 
 ### Added
