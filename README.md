@@ -53,6 +53,10 @@ install the latest version of Python instead (e.g., Python 3.12 or
 greater.) If you know you have installed Python, but `pip3` is not a
 recognized command, you might need to manually adjust your `PATH`.
 
+To upgrade `docassemblecli` after you have already installed it, do:
+
+    pip3 install --upgrade docassemblecli
+
 ## Usage
 
 ### dacreate
