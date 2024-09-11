@@ -19,7 +19,7 @@ import signal
 import hashlib
 from pathlib import Path
 
-IGNORE_REGEXES = ['.*/\.git$', '.*/\.git/.*', '.*~$', '.*/\.?\#.*', '.*/\.?flycheck_.*', '.*__pycache__.*', '.*/\.mypy_cache/.*', '.*\.egg-info.*', '.*\.py[cod]$', '.*\$py\.class$', '.*\.swp$', '.*/build/.*']
+IGNORE_REGEXES = ['.*/\.git$', '.*/\.git/.*', '.*~$', '.*/\.?\#.*', '.*/\.?flycheck_.*', '.*__pycache__.*', '.*/\.mypy_cache/.*', '.*\.egg-info.*', '.*\.py[cod]$', '.*\$py\.class$', '.*\.swp$', '.*/build/.*', '.*\.tmp$', '.*\#$', '.*/\.~.*', '.*/~.*']
 IGNORE_DIRS = ['.git', '__pycache__', '.mypy_cache', '.venv', '.history', 'build']
 SETTLE_DELAY = 0.6  # Delay in seconds to let the local system become settled after an event. The optimal value depends on how local applications modify files.
 
@@ -95,16 +95,30 @@ async def handle_event_after_delay(queue, to_do, data):
                 to_do.append(queue.get_nowait())
             except asyncio.QueueEmpty:
                 pass
-        seen = set()
-        unduplicated_to_do = []
+        events_by_type = {}
         for event in to_do:
-            if event['src_path'] in seen:
-                continue
-            seen.add(event['src_path'])
+            if event['src_path'] in events_by_type:
+                if event['event_type'] == 'deleted':
+                    del events_by_type[event['src_path']]
+                else:
+                    if 'deleted' in events_by_type[event['src_path']]:
+                        del events_by_type[event['src_path']]['deleted']
+                        if len(events_by_type[event['src_path']]) == 0:
+                            del events_by_type[event['src_path']]
             if event['event_type'] == 'modified' and checksum_is_same(event['src_path']):
                 debug_log(data['args'], event['src_path'] + " was not actually changed; disregarding.")
                 continue
-            unduplicated_to_do.append(event)
+            if event['src_path'] not in events_by_type:
+                events_by_type[event['src_path']] = {}
+            events_by_type[event['src_path']][event['event_type']] = event
+        unduplicated_to_do = []
+        for file_path, events in events_by_type.items():
+            if 'created' in events:
+                unduplicated_to_do.append(events['created'])
+            elif 'modified' in events:
+                unduplicated_to_do.append(events['modified'])
+            elif 'deleted' in events:
+                unduplicated_to_do.append(events['deleted'])
         if len(unduplicated_to_do) > 0:
             something_done = True
             if not data['args'].norestart and full_install_done and not data['args'].force_restart and not manual_mode:
@@ -192,6 +206,8 @@ async def handle_event_after_delay(queue, to_do, data):
                                         sys.stderr.write("Failed to upload " + file_path + "\n" + r.text + "\n")
                                 except requests.exceptions.Timeout:
                                     sys.stderr.write("Server timed out while uploading " + file_path)
+                                except FileNotFoundError:
+                                    sys.stderr.write(file_path + " disappeared during processing\n")
             else:
                 if manual_mode:
                     important_file_updated = True
@@ -736,6 +752,7 @@ en
 .dir-locals.el
 .flake8
 *.swp
+*.tmp
 .DS_Store
 .envrc
 .env
