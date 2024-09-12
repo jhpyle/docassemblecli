@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.0.20 - 2024-09-12
+
+### Fixed
+- Ignore temporary files created by the vi editor.
+- Fix issue introduced in previous version that prevented the initial
+  upload.
+
 ## 0.0.19 - 2024-09-11
 
 ### Fixed
