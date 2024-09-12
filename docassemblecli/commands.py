@@ -19,7 +19,7 @@ import signal
 import hashlib
 from pathlib import Path
 
-IGNORE_REGEXES = ['.*/\.git$', '.*/\.git/.*', '.*~$', '.*/\.?\#.*', '.*/\.?flycheck_.*', '.*__pycache__.*', '.*/\.mypy_cache/.*', '.*\.egg-info.*', '.*\.py[cod]$', '.*\$py\.class$', '.*\.swp$', '.*/build/.*', '.*\.tmp$', '.*\#$', '.*/\.~.*', '.*/~.*']
+IGNORE_REGEXES = ['.*/\.git$', '.*/\.git/.*', '.*~$', '.*/\.?\#.*', '.*/\.?flycheck_.*', '.*__pycache__.*', '.*/\.mypy_cache/.*', '.*\.egg-info.*', '.*\.py[cod]$', '.*\$py\.class$', '.*\.swp$', '.*/build/.*', '.*\.tmp$', '.*\#$', '.*/\.~.*', '.*/~.*', '.*\.swx$']
 IGNORE_DIRS = ['.git', '__pycache__', '.mypy_cache', '.venv', '.history', 'build']
 SETTLE_DELAY = 0.6  # Delay in seconds to let the local system become settled after an event. The optimal value depends on how local applications modify files.
 
@@ -32,10 +32,13 @@ checksums = {}  # type: ignore[var-annotated]
 
 def checksum_is_same(path):
     path = os.path.abspath(path)
-    with open(path, "rb") as fp:
-        new_checksum = hashlib.md5(fp.read()).hexdigest()
-    response = checksums.get(path, '') == new_checksum
-    checksums[path] = new_checksum
+    try:
+        with open(path, "rb") as fp:
+            new_checksum = hashlib.md5(fp.read()).hexdigest()
+        response = checksums.get(path, '') == new_checksum
+        checksums[path] = new_checksum
+    except FileNotFoundError:
+        response = True
     return response
 
 def debug_log(args, message):
@@ -106,14 +109,16 @@ async def handle_event_after_delay(queue, to_do, data):
                         if len(events_by_type[event['src_path']]) == 0:
                             del events_by_type[event['src_path']]
             if event['event_type'] == 'modified' and checksum_is_same(event['src_path']):
-                debug_log(data['args'], event['src_path'] + " was not actually changed; disregarding.")
+                debug_log(data['args'], event['src_path'] + " was not actually changed, or has already been deleted; disregarding.")
                 continue
             if event['src_path'] not in events_by_type:
                 events_by_type[event['src_path']] = {}
             events_by_type[event['src_path']][event['event_type']] = event
         unduplicated_to_do = []
         for file_path, events in events_by_type.items():
-            if 'created' in events:
+            if 'manual' in events:
+                unduplicated_to_do.append(events['manual'])
+            elif 'created' in events:
                 unduplicated_to_do.append(events['created'])
             elif 'modified' in events:
                 unduplicated_to_do.append(events['modified'])
@@ -127,8 +132,11 @@ async def handle_event_after_delay(queue, to_do, data):
                 # 2. This is the first install.
                 # 3. The installer is triggered manually.
                 data['args'].norestart = True
+                debug_log(data['args'], "norestart is True initially")
                 for event in unduplicated_to_do:
+                    debug_log(data['args'], "considering event " + repr(event))
                     if event['event_type'] == 'manual' or event['src_path'].endswith('.py'):
+                        debug_log(data['args'], "norestart is now False")
                         data['args'].norestart = False
                         break
             debug_log(data['args'], "not going to restart the server" if data['args'].norestart else "going to restart the server")
@@ -157,6 +165,8 @@ async def handle_event_after_delay(queue, to_do, data):
                         continue
                     if event['event_type'] == 'deleted':
                         debug_log(data['args'], event['src_path'] + " was deleted, so no need to upload anything")
+                        if event['src_path'] in checksums:
+                            del checksums[event['src_path']]
                         continue
                     path = '/'.join(os.path.normpath(event['src_path']).split(os.sep))
                     m = re.search(r'/docassemble/([^/]+)/data/([^/]+)/', path)
