@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'dainstall = docassemblecli.commands:dainstall',
             'dacreate = docassemblecli.commands:dacreate',
+            'dadownload = docassemblecli.commands:dadownload',
         ],
     }
 )

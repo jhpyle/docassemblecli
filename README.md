@@ -6,9 +6,9 @@ local machine, not on a [docassemble] server.
 
 ## Prerequisites
 
-The `dainstall` and `dacreate` programs require that you have Python
-installed on your computer. If you are using MacOS or Linux, you
-probably have Python installed already.
+The `dainstall`, `dacreate`, and `dadownload` utility programs require
+that you have Python installed on your computer. If you are using
+MacOS or Linux, you probably have Python installed already.
 
 ### Installing Python on Windows
 
@@ -21,25 +21,23 @@ check both of them. Later on in the installation, you may be prompted
 to extend the maximum length of the `PATH` variable beyond 250
 characters. You should click the button to make this
 change. Installing Python this way will make it much easier to run the
-`dainstall` and `dacreate` utilities because you will not need to
-manually adjust your `PATH`.
+utilities because you will not need to manually adjust your `PATH`.
 
 Note that when you have installed Python on Windows, an application
 called "Python" will be available from the start menu. This
 application runs the [Python Interpreter]. The Python Interpreter is a
 very useful tool, but it is not the tool for installing
-`docassemblecli` or running the command line utilities `dacreate` and
-`dainstall`. To run these commands, you need to use the Windows
-command line application, called `cmd`.
+`docassemblecli` or running the command line utilities `dainstall`,
+`dacreate`, and `dadownload`. To run these commands, you need to use
+the Windows command line application, called `cmd`.
 
 ### Using a command line
 
-In order to install `docassemblecli` and use the `dainstall` and
-`dacreate` utilities, you will need to run an application that gives
-you a command line. On MacOS, you can use the [Terminal application],
-which comes with the operating system. On Windows, you can go to the
-start menu and search for "cmd," which is the name of the [Windows
-command line application].
+In order to install `docassemblecli` and use the utilities, you will
+need to run an application that gives you a command line. On MacOS,
+you can use the [Terminal application], which comes with the operating
+system. On Windows, you can go to the start menu and search for "cmd,"
+which is the name of the [Windows command line application].
 
 ## Installation
 
@@ -252,6 +250,53 @@ Thus, for the fastest development experience, use `--watch` and
 
 If you encounter problems, try running dainstall with the `--debug`
 option.
+
+### dadownload
+
+The `dadownload` utility downloads a package from a **docassemble**
+server and saves it to the current working directory. It connects to
+a **docassemble** server in the same way that `dainstall` does.
+
+    usage: dadownload [-h] [--overwrite] [--apiurl APIURL] [--apikey APIKEY]
+                      [--server SERVER] [--playground] [--project PROJECT] [--add]
+                      [--noconfig]
+                      [package]
+
+    positional arguments:
+      package
+
+    options:
+      -h, --help         show this help message and exit
+      --overwrite        overwrite existing files
+      --apiurl APIURL    base url of your docassemble server, e.g.
+                         https://da.example.com
+      --apikey APIKEY    docassemble API key
+      --server SERVER    use a particular server from the .docassemblecli config
+                         file
+      --playground       download from the Playground
+      --project PROJECT  download from a specific project in the Playground
+      --add              add another server to the .docassemblecli config file
+      --noconfig         do not use the .docassemblecli config file
+
+For example, if you run `dadownload docassemble.foo` (or `dadownload
+foo`, which will do the same thing), a directory `docassemble-foo`
+will be created, containing the `docassemble.foo` package that is
+installed on the **docassemble** server.
+
+If you use `--playground`, then the files specified in a package in
+the Packages folder of the Playground will be collected and downloaded
+to the current working directory.
+
+Without `--playground`, the package that is installed on the server
+will be downloaded to the current working directory. This only works
+if the package was installed by uploading a ZIP file. (Note that the
+`dainstall` command installs packages by uploading a ZIP file.) If the
+package you want to download is on GitHub, use `git clone` to obtain
+it. If the package is only on PyPI, use `pip download` to download the
+code.
+
+By default, `dadownload` will not overwrite any existing files. You
+can override this by specifying `--overwrite`.
 
 ## Text editors that create hidden and temporary files
 

@@ -887,3 +887,151 @@ def find_package_data(where='.', package='', exclude=standard_exclude, exclude_d
     with open(os.path.join(packagedir, 'docassemble', pkgname, '__init__.py'), 'w', encoding='utf-8') as the_file:
         the_file.write("__version__ = " + repr(version) + "\n")
     return(0)
+
+def dadownload():
+    dotfile = os.path.join(os.path.expanduser('~'), '.docassemblecli')
+    parser = argparse.ArgumentParser()
+    parser.add_argument("package", nargs='?')
+    parser.add_argument("--overwrite", help="overwrite existing files", action="store_true")
+    parser.add_argument("--apiurl", help="base url of your docassemble server, e.g. https://da.example.com")
+    parser.add_argument("--apikey", help="docassemble API key")
+    parser.add_argument("--server", help="use a particular server from the .docassemblecli config file")
+    parser.add_argument("--playground", help="download from the Playground", action="store_true")
+    parser.add_argument("--project", help="download from a specific project in the Playground")
+    parser.add_argument("--add", help="add another server to the .docassemblecli config file", action="store_true")
+    parser.add_argument("--noconfig", help="do not use the .docassemblecli config file", action="store_true")
+    args = parser.parse_args()
+    if args.project and not args.playground:
+        return("The --project option can only be used with --playground.")
+    if not args.add:
+        if args.package is None:
+            parser.print_help()
+            return(1)
+    used_input = False
+    if args.noconfig:
+        if args.add:
+            return("Using --add is not compatible with --noconfig.  Exiting.")
+        env = []
+    else:
+        if os.path.isfile(dotfile):
+            try:
+                with open(dotfile, 'r', encoding='utf-8') as fp:
+                    env = yaml.load(fp, Loader=yaml.FullLoader)
+            except Exception as err:
+                sys.stderr.write("Unable to load .docassemblecli file.  " + err.__class__.__name__ + ": " + str(err) + "\n")
+                env = []
+        else:
+            env = []
+        if isinstance(env, dict) and 'apikey' in env and 'apiurl' in env:
+            env['name'] = name_from_url(str(env['apiurl']))
+            env = [env]
+            used_input = True
+        if not isinstance(env, list):
+            sys.stderr.write("Format of .docassemblecli file is not a list; ignoring.\n")
+            env = []
+    if args.add:
+        if args.apiurl:
+            apiurl = args.apiurl
+        else:
+            apiurl = input('Base URL of your docassemble server (e.g., https://da.example.com): ').strip()
+        if args.apikey:
+            apikey = args.apikey
+        else:
+            apikey = input('API key of admin user on ' + apiurl + ': ').strip()
+        add_or_update_env(env, apiurl, apikey)
+        if save_dotfile(dotfile, env):
+            sys.stdout.write("Saved base URL and API key to .docassemblecli as server " + name_from_url(apiurl) + "\n")
+        return(0)
+    if args.server:
+        try:
+            selected_env = select_server(env, args.server)
+        except TerminalException as err:
+            return(str(err))
+    elif len(env) > 0:
+        selected_env = env[0]
+    else:
+        selected_env = {}
+    if args.apiurl:
+        apiurl = args.apiurl
+    elif 'apiurl' in selected_env and isinstance(selected_env['apiurl'], str):
+        apiurl = selected_env['apiurl']
+    elif os.environ.get('DOCASSEMBLEAPIURL'):
+        apiurl = os.environ.get('DOCASSEMBLEAPIURL')
+    else:
+        used_input = True
+        apiurl = input('Base URL of your docassemble server (e.g., https://da.example.com): ')
+    if not re.search(r'^https?://[^\s]+$', apiurl):
+        return("Invalid API url " + apiurl)
+    apiurl = re.sub(r'/+$', '', apiurl)
+    if args.apikey:
+        apikey = args.apikey
+    elif 'apikey' in selected_env and isinstance(selected_env['apikey'], str):
+        apikey = selected_env['apikey']
+    elif os.environ.get('DOCASSEMBLEAPIKEY'):
+        apikey = os.environ.get('DOCASSEMBLEAPIKEY')
+    else:
+        used_input = True
+        apikey = input('API key of admin user on ' + apiurl + ': ')
+    if used_input and not args.noconfig:
+        add_or_update_env(env, apiurl, apikey)
+        if save_dotfile(dotfile, env):
+            sys.stdout.write("Saved base URL and API key to .docassemblecli as server " + name_from_url(apiurl) + "\n")
+    package_name = re.sub(r'^docassemble-', 'docassemble.', args.package)
+    if not package_name.startswith('docassemble.'):
+        package_name = 'docassemble.' + package_name
+    package_file_name = re.sub(r'docassemble\.', 'docassemble-', package_name)
+    archive = tempfile.NamedTemporaryFile(suffix=".zip")
+    if args.playground:
+        params = {'folder': 'packages', 'filename': package_name}
+        if args.project:
+            params['project'] = args.project
+        try:
+            with requests.get(apiurl + '/api/playground', params=params, stream=True, timeout=60, headers={'X-API-Key': apikey}) as r:
+                if r.status_code == 404:
+                    return("Package not found.")
+                r.raise_for_status()
+                with open(archive.name, 'wb') as fp:
+                    for chunk in r.iter_content(8192):
+                        fp.write(chunk)
+        except requests.exceptions.HTTPError as err:
+            return("Error downloading package: " + str(err))
+    else:
+        zip_file_number = None
+        found = False
+        try:
+            response = requests.get(apiurl + '/api/package', headers={'X-API-Key': apikey}, timeout=50)
+            assert response.status_code == 200
+        except:
+            return("Unable to connect to server.")
+        for item in response.json():
+            if item['name'] == package_name:
+                found = True
+                if 'zip_file_number' in item:
+                    zip_file_number = item['zip_file_number']
+                break
+        if found is False:
+            return("Package not installed.")
+        if zip_file_number is None:
+            return("Package installed but is not downloadable.")
+        try:
+            with requests.get(apiurl + '/api/file/' + str(zip_file_number), stream=True, timeout=60, headers={'X-API-Key': apikey}) as r:
+                r.raise_for_status()
+                with open(archive.name, 'wb') as fp:
+                    for chunk in r.iter_content(8192):
+                        fp.write(chunk)
+        except requests.exceptions.HTTPError as err:
+            sys.exit("Error downloading package: " + str(err))
+    with zipfile.ZipFile(archive.name, mode='r') as zf:
+        if not args.overwrite:
+            for file_info in zf.infolist():
+                file_path = file_info.filename
+                if os.path.exists(file_path):
+                    return(f"Unpacking the package here would overwrite existing files ({file_path}). Use --overwrite if you want to overwrite existing files.")
+        for file_info in zf.infolist():
+            file_path = file_info.filename
+            try:
+                zf.extract(file_info, path=os.getcwd())
+            except Exception as e:
+                print(f"Error extracting '{file_path}': {e}")
+    print(f"Unpacked {package_file_name}.")
+    return(0)
