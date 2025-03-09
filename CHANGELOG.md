@@ -1,5 +1,17 @@
 # Change Log
 
+## 0.0.22 - 2025-03-09
+
+### Fixed
+- Code that tests if the server is responsive was using a Playground
+  endpoint, which is not available if the server disables the
+  Playground.
+
+## 0.0.21 - 2024-09-19
+
+### Added
+- The `dadownload` command.
+
 ## 0.0.20 - 2024-09-12
 
 ### Fixed
