@@ -481,10 +481,9 @@ def dainstall():
     to_ignore = [path.rstrip('/') for path in raw_ignore]
     package_name = os.path.basename(os.path.abspath(args.directory))
     try:
-        test_response = requests.get(apiurl + '/api/playground/project', headers={'X-API-Key': apikey}, timeout=50)
-        assert test_response.status_code == 200
-    except:
-        return("Unable to connect to server.")
+        test_connection(args.playground, apiurl, apikey)
+    except Exception as e:
+        return("Unable to connect to server. " + str(e))
     if args.watch:
         data = {"args": args, "apikey": apikey, "apiurl": apiurl, "to_ignore": [os.path.abspath(os.path.join(args.directory, item)) for item in to_ignore], 'ignore_regexes': IGNORE_REGEXES, 'trim': 1 + len(os.path.abspath(args.directory))}
         # if args.playground:
@@ -521,6 +520,18 @@ def dainstall():
         return(str(err))
     return(0)
 
+def test_connection(playground, apiurl, apikey):
+    general_test_response = requests.get(apiurl + '/api/package', headers={'X-API-Key': apikey}, timeout=50)
+    if general_test_response.status_code == 403:
+        raise Exception(f"Please verify the validity of your API-Key.")
+    elif general_test_response.status_code != 200:
+        raise Exception(f"Server responded with status code {general_test_response.status_code}.")
+    if not playground:
+        return
+    playground_test_response = requests.get(apiurl + '/api/playground/project', headers={'X-API-Key': apikey}, timeout=50)
+    if playground_test_response.status_code != 200:
+        raise Exception("Please check if 'enable playground' is set to 'True' in servers configuration.")
+    return
 
 def do_install(args, apikey, apiurl, to_ignore):
     archive = tempfile.NamedTemporaryFile(suffix=".zip")
