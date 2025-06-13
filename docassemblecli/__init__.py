@@ -1,1 +1,1 @@
-from .commands import dainstall, dacreate, dadownload
+from .commands import dainstall, dacreate, dadownload, dauninstall

@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.0.23 - 2025-06-12
+
+### Added
+- The `dauninstall` command.
+
 ## 0.0.22 - 2025-03-09
 
 ### Fixed

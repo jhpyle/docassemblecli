@@ -397,8 +397,8 @@ def dainstall():
             return(1)
         if not os.path.isdir(args.directory):
             return(args.directory + " could not be found.")
-        if not os.path.isfile(os.path.join(args.directory, 'setup.py')):
-            return(args.directory + " does not contain a setup.py file, so it is not the directory of a Python package.")
+        if not (os.path.isfile(os.path.join(args.directory, 'setup.py')) or os.path.isfile(os.path.join(args.directory, 'setup.cfg')) or os.path.isfile(os.path.join(args.directory, 'pyproject.toml'))):
+            return(args.directory + " does not contain a setup.py, setup.cfg, or pyproject.toml file, so it is not the directory of a Python package.")
     used_input = False
     if args.noconfig:
         if args.add:
@@ -520,6 +520,91 @@ def dainstall():
         return(str(err))
     return(0)
 
+
+def dauninstall():
+    dotfile = os.path.join(os.path.expanduser('~'), '.docassemblecli')
+    parser = argparse.ArgumentParser()
+    parser.add_argument("package")
+    parser.add_argument("--apiurl", help="base url of your docassemble server, e.g. https://da.example.com")
+    parser.add_argument("--apikey", help="docassemble API key")
+    parser.add_argument("--norestart", help="do not restart the docassemble server after installing package (only applicable in single-server environments)", action="store_true")
+    parser.add_argument("--server", help="use a particular server from the .docassemblecli config file")
+    parser.add_argument("--noconfig", help="do not use the .docassemblecli config file", action="store_true")
+    parser.add_argument("--debug", help="use verbose logging", action="store_true")
+    args = parser.parse_args()
+    used_input = False
+    if args.noconfig:
+        env = []
+    else:
+        if os.path.isfile(dotfile):
+            try:
+                with open(dotfile, 'r', encoding='utf-8') as fp:
+                    env = yaml.load(fp, Loader=yaml.FullLoader)
+            except Exception as err:
+                sys.stderr.write("Unable to load .docassemblecli file.  " + err.__class__.__name__ + ": " + str(err) + "\n")
+                env = []
+        else:
+            env = []
+        if isinstance(env, dict) and 'apikey' in env and 'apiurl' in env:
+            env['name'] = name_from_url(str(env['apiurl']))
+            env = [env]
+            used_input = True
+        if not isinstance(env, list):
+            sys.stderr.write("Format of .docassemblecli file is not a list; ignoring.\n")
+            env = []
+    if args.server:
+        try:
+            selected_env = select_server(env, args.server)
+        except TerminalException as err:
+            return(str(err))
+    elif len(env) > 0:
+        selected_env = env[0]
+    else:
+        selected_env = {}
+    if args.apiurl:
+        apiurl = args.apiurl
+    elif 'apiurl' in selected_env and isinstance(selected_env['apiurl'], str):
+        apiurl = selected_env['apiurl']
+    elif os.environ.get('DOCASSEMBLEAPIURL'):
+        apiurl = os.environ.get('DOCASSEMBLEAPIURL')
+    else:
+        used_input = True
+        apiurl = input('Base URL of your docassemble server (e.g., https://da.example.com): ')
+    if not re.search(r'^https?://[^\s]+$', apiurl):
+        return("Invalid API url " + apiurl)
+    apiurl = re.sub(r'/+$', '', apiurl)
+    if args.apikey:
+        apikey = args.apikey
+    elif 'apikey' in selected_env and isinstance(selected_env['apikey'], str):
+        apikey = selected_env['apikey']
+    elif os.environ.get('DOCASSEMBLEAPIKEY'):
+        apikey = os.environ.get('DOCASSEMBLEAPIKEY')
+    else:
+        used_input = True
+        apikey = input('API key of admin user on ' + apiurl + ': ')
+    if used_input and not args.noconfig:
+        add_or_update_env(env, apiurl, apikey)
+        if save_dotfile(dotfile, env):
+            sys.stdout.write("Saved base URL and API key to .docassemblecli as server " + name_from_url(apiurl) + "\n")
+    try:
+        test_connection(False, apiurl, apikey)
+    except Exception as e:
+        return("Unable to connect to server. " + str(e))
+    data = {'package': args.package}
+    if args.norestart:
+        data['restart'] = '0'
+    try:
+        r = requests.delete(apiurl + '/api/package', params=data, headers={'X-API-Key': apikey}, timeout=50)
+        if r.status_code != 200:
+            raise TerminalException("package DELETE returned " + str(r.status_code) + ": " + r.text)
+        info = r.json()
+        task_id = info['task_id']
+        if wait_for_server(False, task_id, apikey, apiurl):
+            sys.stdout.write("\nUninstalled.\n")
+    except TerminalException as err:
+        return(str(err))
+    return(0)
+
 def test_connection(playground, apiurl, apikey):
     general_test_response = requests.get(apiurl + '/api/package', headers={'X-API-Key': apikey}, timeout=50)
     if general_test_response.status_code == 403:
@@ -543,7 +628,7 @@ def do_install(args, apikey, apiurl, to_ignore):
     for root, dirs, files in os.walk(args.directory, topdown=True):
         adjusted_root = os.sep.join(root.split(os.sep)[1:])
         dirs[:] = [d for d in dirs if d not in IGNORE_DIRS and not d.startswith('flycheck_') and not d.endswith('.egg-info') and os.path.join(adjusted_root, d) not in to_ignore]
-        if root_directory is None and ('setup.py' in files or 'setup.cfg' in files):
+        if root_directory is None and ('setup.py' in files or 'setup.cfg' in files or 'pyproject.toml' in files):
             root_directory = root
             if 'setup.py' in files:
                 with open(os.path.join(root, 'setup.py'), 'r', encoding='utf-8') as fp:
@@ -565,7 +650,7 @@ def do_install(args, apikey, apiurl, to_ignore):
         for the_file in files:
             if the_file.endswith('~') or the_file.endswith('.pyc') or the_file.endswith('.swp') or the_file.startswith('#') or the_file.startswith('.#') or the_file.startswith('.flycheck_') or (the_file == '.gitignore' and root_directory == root) or os.path.join(adjusted_root, the_file) in to_ignore:
                 continue
-            if not has_python_files and the_file.endswith('.py') and not (the_file == 'setup.py' and root == root_directory) and the_file != '__init__.py':
+            if not has_python_files and the_file.endswith('.py') and not (the_file in ('setup.py', 'setup.cfg', 'pyproject.toml') and root == root_directory) and the_file != '__init__.py':
                 has_python_files = True
             if args.watch:
                 checksum_is_same(os.path.join(root, the_file))
@@ -692,7 +777,7 @@ def dacreate():
         if not os.path.isdir(packagedir):
             return("Cannot create the directory " + packagedir + " because the path already exists.")
         dir_listing = list(os.listdir(packagedir))
-        if 'setup.py' in dir_listing or 'setup.cfg' in dir_listing:
+        if 'setup.py' in dir_listing or 'setup.cfg' in dir_listing or 'pyproject.toml' in dir_listing:
             return("The directory " + packagedir + " already has a package in it.")
     else:
         os.makedirs(packagedir, exist_ok=True)

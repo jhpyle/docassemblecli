@@ -6,9 +6,9 @@ local machine, not on a [docassemble] server.
 
 ## Prerequisites
 
-The `dainstall`, `dacreate`, and `dadownload` utility programs require
-that you have Python installed on your computer. If you are using
-MacOS or Linux, you probably have Python installed already.
+The utility programs in `docassemblecli` require that you have Python
+installed on your computer. If you are using MacOS or Linux, you
+probably have Python installed already.
 
 ### Installing Python on Windows
 
@@ -28,8 +28,8 @@ called "Python" will be available from the start menu. This
 application runs the [Python Interpreter]. The Python Interpreter is a
 very useful tool, but it is not the tool for installing
 `docassemblecli` or running the command line utilities `dainstall`,
-`dacreate`, and `dadownload`. To run these commands, you need to use
-the Windows command line application, called `cmd`.
+`dauninstall`, `dacreate`, and `dadownload`. To run these commands,
+you need to use the Windows command line application, called `cmd`.
 
 ### Using a command line
 
@@ -185,7 +185,7 @@ to add an additional server configuration to store in your
 `.docassemblecli` config file. Then you can select the server using
 `--server`:
 
-   dainstall --server dev.example.com docassemble-foobar
+    dainstall --server dev.example.com docassemble-foobar
 
 If you do not specify a `--server`, the first server indicated in your
 `.docassemblecli` file will be used.
@@ -206,12 +206,12 @@ By default, `dainstall` installs a package on the server. If you want
 to install a package into your Playground, you can use the
 `--playground` option.
 
-   dainstall --playground docassemble.foobar
+    dainstall --playground docassemble.foobar
 
 If you want to install into a particular project in your Playground,
 indicate the project with `--project`.
 
-   dainstall --playground --project testing docassemble-foobar
+    dainstall --playground --project testing docassemble-foobar
 
 Installing into the Playground with `--playground` is faster than
 installing an actual Python package because it does not need to run
@@ -250,6 +250,30 @@ Thus, for the fastest development experience, use `--watch` and
 
 If you encounter problems, try running dainstall with the `--debug`
 option.
+
+### dauninstall
+
+The `dauninstall` utility uninstalls a package from a **docassemble**
+server.
+
+    usage: dauninstall [-h] [--apiurl APIURL] [--apikey APIKEY] [--norestart]
+                       [--server SERVER] [--noconfig] [--debug]
+                       package
+
+    positional arguments:
+      package
+
+    options:
+      -h, --help       show this help message and exit
+      --apiurl APIURL  base url of your docassemble server, e.g.
+                       https://da.example.com
+      --apikey APIKEY  docassemble API key
+      --norestart      do not restart the docassemble server after installing
+                       package (only applicable in single-server environments)
+      --server SERVER  use a particular server from the .docassemblecli config
+                       file
+      --noconfig       do not use the .docassemblecli config file
+      --debug          use verbose logging
 
 ### dadownload
 

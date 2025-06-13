@@ -1,0 +1,33 @@
+[project]
+name = "docassemblecli"
+version = "0.0.22"
+authors = [
+  { name = "Jonathan Pyle", email = "jhpyle@gmail.com" },
+]
+description = "CLI utilities for using docassemble"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "pyyaml",
+  "requests",
+  "packaging",
+  "watchdog",
+]
+
+[project.urls]
+Homepage = "https://github.com/jhpyle/docassemblecli"
+"Bug Tracker" = "https://github.com/jhpyle/docassemblecli/issues"
+
+[project.scripts]
+dainstall = "docassemblecli.commands:dainstall"
+dacreate = "docassemblecli.commands:dacreate"
+dadownload = "docassemblecli.commands:dadownload"
+dauninstall = "docassemblecli.commands:dauninstall"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
