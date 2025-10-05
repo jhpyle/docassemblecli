@@ -16,6 +16,8 @@ dependencies = [
   "requests",
   "packaging",
   "watchdog",
+  "tomli",
+  "tomli_w",
 ]
 
 [project.urls]
