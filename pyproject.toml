@@ -1,6 +1,6 @@
 [project]
 name = "docassemblecli"
-version = "0.0.23"
+version = "0.0.24"
 authors = [
   { name = "Jonathan Pyle", email = "jhpyle@gmail.com" },
 ]
